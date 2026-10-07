@@ -1,0 +1,373 @@
+# Especificación funcional
+
+Fuente: `docs/prueba_tecnica.pdf` (texto plano). Este documento fija **qué** hace el sistema; el **cómo** está en
+`docs/plan.md`. El esquema de base de datos vive en `migrations/001_schema.sql`, que es la fuente de verdad.
+
+Notación: **R** = regla del enunciado · **D** = decisión tomada · **S** = supuesto · **P** = pregunta abierta.
+
+---
+
+## 1. Reglas obligatorias del enunciado
+
+| ID | Regla | Sección |
+|---|---|---|
+| R1 | Cada usuario tiene una wallet por activo (USDT-SBX y XAUT-SBX). | 2, 3.4 |
+| R2 | Los saldos nunca son negativos y no se modifican directamente: todo cambio nace de un movimiento de ledger. | 3.4 |
+| R3 | Los movimientos confirmados no se eliminan ni se sobrescriben. | 3.4 |
+| R4 | Una misma operación no puede ejecutarse más de una vez. | 3.4 |
+| R5 | Débito, crédito, movimientos y actualización de la operación se confirman o se revierten en una misma transacción. | 3.4 |
+| R6 | Cálculos con decimales o enteros de precisión definida; nada de punto flotante binario. | 3.4 |
+| R7 | Por wallet se registra: disponible, retenido y total. Por movimiento: tipo, referencia, fecha y hora, estado, saldo anterior y posterior. | 3.4 |
+| R8 | Precio 1 XAUT-SBX = 2.500 USDT-SBX; comisión del 1 % sobre el origen, descontada antes de convertir; vigencia de 30 s; máximo 8 decimales; destino redondeado hacia abajo. | 3.6 |
+| R9 | Una cotización vencida no se ejecuta, no se usa dos veces, guarda el precio y la comisión, y la ejecución usa lo almacenado sin recalcular. | 3.6 |
+| R10 | Antes de ejecutar se consulta un servicio de cumplimiento desacoplado: < 1.000 → LOW; 1.000 a 5.000 inclusive → MEDIUM; > 5.000 → HIGH. | 3.7 |
+| R11 | LOW se ejecuta. MEDIUM se ejecuta y queda marcada para seguimiento (COMPLETED, sin aprobación previa). HIGH se retiene hasta que Cumplimiento decida. | 3.7, 3.8 |
+| R12 | Si el servicio de cumplimiento falla, la operación no afecta saldos y queda en un estado controlado. | 3.7 |
+| R13 | Si se aprueba una HIGH: se debita lo retenido, se acredita XAUT y queda COMPLETED. Si se rechaza: se libera lo retenido, queda REJECTED y no se acredita nada. En ambos casos se conserva el precio original aunque la cotización haya vencido. | 3.8 |
+| R14 | `Idempotency-Key` obligatoria en la creación del intercambio. Misma clave y mismo contenido → resultado original; misma clave y contenido distinto → 409. La clave se persiste. | 3.9 |
+| R15 | Las transacciones y el control de concurrencia evitan que dos solicitudes consuman el mismo saldo. | 3.10 |
+| R16 | Autenticación simplificada con `X-User-Id`: 401 si no identifica al usuario, 403 si no tiene permiso. | 3.2 |
+| R17 | Datos semilla: user-001 (USER, 10.000 USDT-SBX) y compliance-001 (COMPLIANCE, 0/0). | 3.3 |
+| R18 | Se respeta la sección 7 (fuera de alcance): sin frontend funcional, OIDC, order book, partida doble completa, microservicios ni observabilidad avanzada. | 7 |
+
+## 2. Contradicciones y vacíos detectados en el enunciado
+
+| # | Hallazgo | Resolución |
+|---|---|---|
+| C1 | El movimiento se define como "débito/crédito", pero HIGH necesita retener y liberar. | D1 |
+| C2 | "Los saldos no se modifican directamente", pero la semilla da 10.000 USDT sin decir de dónde salen. | D2 |
+| C3 | En un flujo síncrono, CREATED y PROCESSING no se distinguen. | D3 |
+| C4 | Para HIGH dice "utilizada **o reservada**", pero no existe el estado RESERVED. | D4 |
+| C5 | No define el redondeo de la comisión ni la precisión del monto de entrada. | D5 |
+| C6 | En 3.2 el usuario "consulta sus operaciones", pero la API mínima no tiene un listado. | D6 |
+| C7 | No dice qué pasa con la cotización ni con la clave de idempotencia si el servicio de cumplimiento falla. | D7, D11 |
+| C8 | No aclara si el umbral de riesgo se aplica al monto bruto o al neto. | S1 |
+| C9 | Formato: el archivo `.pdf` es texto plano; el texto de 3.3 está desordenado; las letras a–f de la sección 10 están separadas de sus preguntas. Se interpretan en orden. | — |
+
+## 3. Decisiones
+
+Cada decisión la tomó el autor; la justificación queda registrada para la sustentación.
+
+**D1. Retención sin tipos HOLD/RELEASE.** Solo hay movimientos `DEBIT` y `CREDIT`, y cada uno indica qué saldo de la
+wallet mueve (`balance_type` = `AVAILABLE` o `HELD`). Retener = DEBIT AVAILABLE + CREDIT HELD en la misma wallet;
+liberar = DEBIT HELD + CREDIT AVAILABLE.
+*Justificación:* respeta literalmente "tipo (débito/crédito)" y R2: ningún saldo, ni siquiera el retenido, cambia sin un
+movimiento. El saldo anterior y el posterior se refieren al saldo afectado.
+
+**D2. El saldo inicial es un movimiento.** Es un CREDIT AVAILABLE con `reference_type = INITIAL_DEPOSIT` y sin
+operación asociada. Toda wallet nace en cero, y un trigger lo exige.
+*Justificación:* cumple R2 desde el primer saldo y permite conciliar la suma del ledger contra el saldo de la wallet. El
+README explica que en partida doble este crédito tendría su contrapartida en una cuenta de tesorería.
+
+**D3. Estados del intercambio sin CREATED.** Toda operación nace en `PROCESSING` en la primera transacción, porque el
+riesgo todavía no se conoce. Transiciones permitidas:
+PROCESSING → COMPLETED | PENDING_REVIEW | FAILED; PENDING_REVIEW → COMPLETED | REJECTED.
+*Justificación:* CREATED sería indistinguible de PROCESSING. Eliminarlo evita la ambigüedad, como permite la sección 5.
+La base aplica la máquina de estados con un trigger.
+
+**D4. No existe RESERVED.** Una cotización en `USED` nunca se reutiliza, incluso si la operación termina REJECTED.
+*Justificación:* hay menos estados y menos transiciones. Una operación rechazada exige una nueva cotización con el
+precio vigente.
+
+**D5. Precisión y redondeos.** El monto de entrada acepta como máximo 8 decimales. La comisión se redondea **hacia
+arriba** a 8 decimales y el monto destino **hacia abajo** a 8.
+*Justificación:* 8 decimales es la precisión máxima del enunciado. Con ella, el 1 % puede dar 10 decimales, así que
+hace falta un redondeo; hacia arriba y hacia abajo favorecen a la plataforma y nunca entregan más de lo cobrado. La
+base vuelve a verificar ambas reglas con CHECKs exactos.
+
+**D6. Listado de operaciones.** `GET /exchanges` devuelve solo las operaciones del usuario autenticado. COMPLIANCE ve
+todas y puede filtrar con `?userId=`.
+*Justificación:* cubre el "consultar sus operaciones" de 3.2, que la API mínima omite.
+
+**D7. Falla del servicio de cumplimiento.** La operación queda `FAILED` (`failure_reason = COMPLIANCE_UNAVAILABLE`),
+sin movimientos; se responde 503 y la cotización sigue disponible si no venció. No hay colas ni reintentos
+automáticos; la estrategia de producción va en el README.
+*Justificación:* es el "estado controlado" de R12. Que la cotización siga disponible evita castigar al usuario por una
+falla interna.
+
+**D8. La cotización se marca USED en la segunda transacción.** Un intercambio vivo por cotización lo garantiza un índice
+único parcial `exchanges(quote_id) WHERE status <> 'FAILED'`.
+*Justificación:* si la primera transacción la marcara USED, habría que revertirla tras una falla (D7), pero D4 prohíbe
+USED → ACTIVE. Con el índice parcial, un intercambio FAILED libera la cotización sin cambiar su estado.
+
+**D9. Dos transacciones, con la llamada a cumplimiento fuera de ambas.** Si el proceso se cae entre las dos, un
+mecanismo de recuperación marcaría como FAILED las operaciones en PROCESSING más antiguas que un umbral. En la
+prueba solo se documenta.
+*Justificación:* no se retienen bloqueos de fila mientras se espera a un servicio que en producción sería externo y
+lento.
+
+**D10. Se conserva `compliance_decisions` y `exchanges` no copia montos.** Los montos y el precio se leen de la
+cotización, cuyas columnas son inmutables por trigger (solo cambia `status`).
+*Justificación:* la decisión de Cumplimiento es un registro de auditoría propio (revisor, decisión, motivo), como pide
+3.2. Quitar la copia de montos elimina la posibilidad de que diverjan, y el trigger garantiza R9 ("usa la información
+almacenada").
+
+**D11. Idempotencia: qué se guarda y qué se libera.**
+
+| Resultado | Clave | Por qué |
+|---|---|---|
+| 201 (COMPLETED o PENDING_REVIEW) | Se guarda la respuesta | Es el resultado definitivo de la operación. |
+| 404 QUOTE_NOT_FOUND, 409 QUOTE_ALREADY_USED, 422 QUOTE_EXPIRED | Se guarda la respuesta | Reintentar con el mismo contenido daría siempre lo mismo. |
+| 503 COMPLIANCE_UNAVAILABLE | **Se libera** (se borra la fila) | Es transitorio y la cotización sigue disponible (D7); el cliente reintenta con la misma clave. |
+| 422 INSUFFICIENT_FUNDS (en cualquiera de las dos transacciones) | **Se libera** | Es transitorio: el saldo puede cambiar. ⚠ Ver P1. |
+| 409 QUOTE_IN_USE (otro intercambio vivo sobre la cotización) | **Se libera** | Es transitorio: el otro intercambio puede terminar FAILED. |
+| 400, 401, 403 | No se consume | Se rechaza antes de reservar la clave. |
+
+La clave queda anotada en el intercambio (`exchanges.idempotency_key`) para auditoría, aunque la fila de
+`idempotency_keys` se borre. Una respuesta reproducida lleva el encabezado `Idempotent-Replayed: true`.
+
+**D12. Monto mínimo implícito.** `POST /quotes` responde 422 `AMOUNT_TOO_SMALL` si el destino da 0 tras redondear. No
+hay un mínimo arbitrario: la regla sale del cálculo, y el CHECK `target_amount > 0` la respalda.
+
+**D13. Filtro de usuario.** En `GET /exchanges`, si un USER envía `?userId` con un id distinto del suyo, recibe 403; si
+envía el suyo, se acepta.
+
+**D14. Decisiones aceptadas a partir de las propuestas iniciales.**
+- Códigos de respuesta según la sección 5.
+- Vencimiento perezoso: no hay un job que expire cotizaciones; se marcan EXPIRED cuando alguien intenta usarlas. El
+  TTL es configurable (`QUOTE_TTL_SECONDS`, 30 por defecto).
+- El saldo se valida al ejecutar, no al cotizar.
+- `GET /exchanges/:id` lo pueden ver el dueño y COMPLIANCE.
+- Segregación de funciones: COMPLIANCE recibe 403 al cotizar o intercambiar, y USER recibe 403 en `/compliance/*`. La
+  base exige además que el revisor de una decisión tenga rol COMPLIANCE.
+- El motivo es obligatorio al rechazar y opcional al aprobar.
+- El servicio de cumplimiento es un provider dentro de la app, detrás de una interfaz e inyectable; en pruebas se
+  reemplaza por uno que falla.
+- Montos con `decimal.js`.
+- Se agregan pruebas ligeras de concurrencia si el tiempo alcanza.
+
+**D15. Tres comandos.** `pnpm install`, `pnpm run up` (Postgres + migraciones + semilla + API) y `pnpm test`
+(levanta Postgres si hace falta y prepara su propia base de pruebas).
+
+**D16. Esquema único.** `migrations/001_schema.sql` es la fuente de verdad; no hay copia en `docs/`.
+
+---
+
+## 4. Modelo de cálculo de la cotización
+
+```
+fee_amount    = ceil8(source_amount × 0,01)       -- D5: hacia arriba
+net_amount    = source_amount − fee_amount
+target_amount = floor8(net_amount ÷ 2.500)        -- R8: hacia abajo
+risk_level    = f(source_amount)                  -- S1: monto bruto
+expires_at    = now() + 30 s                      -- hora de la base de datos
+```
+
+Ejemplo del enunciado: 2.500 USDT → comisión 25 → neto 2.475 → 0,99 XAUT (MEDIUM).
+
+Dividir por 2.500 (= 2² · 5⁴) siempre da un resultado finito: un neto con 8 decimales produce como mucho 12, así que
+el `floor8` opera sobre un valor exacto y no hay error acumulado.
+
+## 5. API
+
+Convenciones:
+- Autenticación con el encabezado `X-User-Id`.
+- Los montos viajan **como string** en las peticiones y en las respuestas (S3).
+- Formato de error: `{ "error": { "code": "QUOTE_EXPIRED", "message": "…", "details": { … } } }`.
+
+Errores comunes a todos los endpoints:
+
+| Status | Código | Cuándo |
+|---|---|---|
+| 401 | `UNAUTHENTICATED` | Falta `X-User-Id` o el usuario no existe. |
+| 403 | `FORBIDDEN` | El rol no permite la acción. |
+| 400 | `VALIDATION_ERROR` | El cuerpo, los parámetros o los encabezados son inválidos. |
+
+### 5.1 `GET /wallets`
+
+Roles: USER y COMPLIANCE (S5). Devuelve las wallets propias.
+
+- 200 → `[{ id, asset, available, held, total, updated_at }]`
+
+### 5.2 `GET /wallets/:id/movements?limit=50`
+
+Roles: USER y COMPLIANCE, sobre sus propias wallets. Devuelve los movimientos del más reciente al más antiguo (orden por
+`id`). `limit` va de 1 a 200; por defecto 50.
+
+- 200 → `[{ id, entry_type, balance_type, amount, balance_before, balance_after, status, reference_type, exchange_id, created_at }]`
+- 400 si el id no es un uuid o el limit es inválido.
+- 404 `WALLET_NOT_FOUND` si la wallet no existe o es de otro usuario. Se usa 404 y no 403 para no revelar si existe.
+
+### 5.3 `POST /quotes`
+
+Rol: USER.
+
+Cuerpo: `{ "source_asset": "USDT-SBX", "target_asset": "XAUT-SBX", "source_amount": "999.99" }`.
+
+- 201 → `{ id, source_asset, target_asset, source_amount, price, fee_rate, fee_amount, net_amount, target_amount, status, created_at, expires_at }`
+- 400 `VALIDATION_ERROR` si el monto no cumple `^\d{1,20}(\.\d{1,8})?$`, si es ≤ 0, si llega como número JSON (S3), o si
+  el par no es USDT-SBX → XAUT-SBX.
+- 403 si el rol es COMPLIANCE.
+- 422 `AMOUNT_TOO_SMALL` si el destino da 0 tras redondear (D12).
+
+### 5.4 `POST /exchanges`
+
+Rol: USER. Encabezado obligatorio `Idempotency-Key` (de 1 a 255 caracteres). Cuerpo: `{ "quote_id": "<uuid>" }`.
+
+| Status | Código / estado | Cuándo | ¿Se guarda bajo la clave? |
+|---|---|---|---|
+| 201 | `status: COMPLETED` | LOW o MEDIUM ejecutada (MEDIUM con `requires_follow_up: true`). | Sí |
+| 201 | `status: PENDING_REVIEW` | HIGH retenida. | Sí |
+| 400 | `VALIDATION_ERROR` | Falta la clave o el `quote_id` no es un uuid. | No |
+| 403 | `FORBIDDEN` | El rol es COMPLIANCE. | No |
+| 404 | `QUOTE_NOT_FOUND` | La cotización no existe o es de otro usuario. | Sí |
+| 409 | `IDEMPOTENCY_KEY_MISMATCH` | La clave ya se usó con otro contenido. | — |
+| 409 | `IDEMPOTENCY_IN_PROGRESS` | La petición original con esa clave aún no termina. | — |
+| 409 | `QUOTE_ALREADY_USED` | La cotización está en USED. | Sí |
+| 409 | `QUOTE_IN_USE` | Hay otro intercambio vivo (PROCESSING) sobre la cotización. | No (se libera) |
+| 422 | `QUOTE_EXPIRED` | Venció (se marca EXPIRED). | Sí |
+| 422 | `INSUFFICIENT_FUNDS` | El disponible es menor que `source_amount`. Si se detecta en la segunda transacción, la operación queda FAILED. | No (se libera) |
+| 503 | `COMPLIANCE_UNAVAILABLE` | El servicio falló o superó el timeout; la operación queda FAILED y `details` incluye `exchange_id`. | No (se libera) |
+
+Cuerpo de la respuesta 201: el mismo que `GET /exchanges/:id`.
+
+### 5.5 `GET /exchanges?userId=`
+
+Roles: USER (solo lo propio; D6 y D13) y COMPLIANCE (todo, con filtro opcional). Orden: lo más reciente primero.
+
+- 200 → `[{ id, user_id, status, risk_level, requires_follow_up, source_amount, target_amount, created_at }]`
+- 403 si un USER envía un `userId` ajeno.
+
+### 5.6 `GET /exchanges/:id`
+
+Roles: el dueño o COMPLIANCE. Devuelve el detalle completo y la trazabilidad de la operación:
+
+```
+{ id, user_id, status, risk_level, requires_follow_up, failure_reason, created_at, updated_at,
+  quote: { id, source_asset, target_asset, source_amount, price, fee_rate, fee_amount, net_amount,
+           target_amount, created_at, expires_at, status },
+  movements: [...], compliance_checks: [...], decision: {...} | null, events: [...] }
+```
+
+- 404 `EXCHANGE_NOT_FOUND` si no existe o un USER pide una ajena.
+
+### 5.7 `GET /compliance/exchanges/pending`
+
+Rol: COMPLIANCE. Devuelve las operaciones en PENDING_REVIEW, de la más antigua a la más reciente.
+
+- 200 → `[{ id, user_id, user_name, source_asset, source_amount, target_asset, target_amount, price, risk_level, created_at }]`
+
+### 5.8 `PATCH /compliance/exchanges/:id/approve`
+
+Rol: COMPLIANCE. Cuerpo opcional `{ "reason": "…" }`.
+
+- 200 → detalle de la operación (COMPLETED).
+- 404 `EXCHANGE_NOT_FOUND`.
+- 409 `EXCHANGE_NOT_PENDING` si no está en PENDING_REVIEW (incluye la decisión duplicada o concurrente).
+
+### 5.9 `PATCH /compliance/exchanges/:id/reject`
+
+Rol: COMPLIANCE. Cuerpo `{ "reason": "…" }`, obligatorio y no vacío.
+
+- 200 → detalle de la operación (REJECTED).
+- 400 si falta el motivo.
+- 404 si no existe.
+- 409 `EXCHANGE_NOT_PENDING`.
+
+Documentación navegable: Swagger UI en `/docs`.
+
+## 6. Estados y transiciones
+
+### 6.1 Cotización
+
+```mermaid
+stateDiagram-v2
+  [*] --> ACTIVE: POST /quotes
+  ACTIVE --> EXPIRED: intento de uso con now() >= expires_at
+  ACTIVE --> USED: Tx2 de un intercambio que termina COMPLETED o PENDING_REVIEW
+  EXPIRED --> [*]
+  USED --> [*]
+```
+
+- Una cotización en ACTIVE con un intercambio FAILED sigue en ACTIVE (D7, D8).
+- Ningún estado vuelve atrás; lo exige el trigger `quotes_guard_update`.
+- El vencimiento se evalúa **solo en la primera transacción**. Si la cotización vence mientras la llamada a cumplimiento
+  está en curso, la segunda transacción la marca USED igual, porque la operación fue aceptada dentro de la vigencia.
+
+### 6.2 Intercambio
+
+```mermaid
+stateDiagram-v2
+  [*] --> PROCESSING: Tx1 (cotización válida y saldo preliminar suficiente)
+  PROCESSING --> COMPLETED: LOW/MEDIUM: débito + crédito
+  PROCESSING --> PENDING_REVIEW: HIGH: retención
+  PROCESSING --> FAILED: cumplimiento no disponible / saldo insuficiente en Tx2 / recuperación
+  PENDING_REVIEW --> COMPLETED: aprobación (débito retenido + crédito XAUT)
+  PENDING_REVIEW --> REJECTED: rechazo (liberación)
+  COMPLETED --> [*]
+  REJECTED --> [*]
+  FAILED --> [*]
+```
+
+| Transición | Movimientos de ledger | Cotización | Evento | Actor |
+|---|---|---|---|---|
+| → PROCESSING | — | sigue ACTIVE | null → PROCESSING | usuario |
+| PROCESSING → COMPLETED (LOW/MEDIUM) | USDT: DEBIT AVAILABLE · XAUT: CREDIT AVAILABLE | USED | sí | sistema |
+| PROCESSING → PENDING_REVIEW (HIGH) | USDT: DEBIT AVAILABLE + CREDIT HELD | USED | sí | sistema |
+| PROCESSING → FAILED | ninguno | sigue ACTIVE | sí, con motivo | sistema |
+| PENDING_REVIEW → COMPLETED | USDT: DEBIT HELD · XAUT: CREDIT AVAILABLE | (ya USED) | sí + `compliance_decisions` | revisor |
+| PENDING_REVIEW → REJECTED | USDT: DEBIT HELD + CREDIT AVAILABLE | (ya USED) | sí + `compliance_decisions` | revisor |
+
+Valores de `failure_reason`: `COMPLIANCE_UNAVAILABLE`, `INSUFFICIENT_FUNDS`, `RECOVERY_TIMEOUT` (este último solo
+documentado, D9).
+
+## 7. Casos borde
+
+Saldo inicial de user-001: 10.000 USDT-SBX. Los valores están calculados con D5.
+
+| Monto USDT | Comisión | Neto | XAUT | Riesgo | Resultado esperado |
+|---|---|---|---|---|---|
+| 999,99 | 9,9999 | 989,9901 | 0,39599604 | LOW | COMPLETED, sin seguimiento |
+| 1.000 | 10 | 990 | 0,396 | MEDIUM | COMPLETED, `requires_follow_up = true` |
+| 2.500 | 25 | 2.475 | 0,99 | MEDIUM | Ejemplo del enunciado |
+| 5.000 | 50 | 4.950 | 1,98 | MEDIUM | COMPLETED con seguimiento (5.000 inclusive) |
+| 5.000,01 | 50,0001 | 4.950,0099 | 1,98000396 | HIGH | PENDING_REVIEW; available −5.000,01, held +5.000,01 |
+| 10.000 | 100 | 9.900 | 3,96 | HIGH | PENDING_REVIEW con todo el saldo retenido (disponible = 0) |
+| 10.000,00000001 | 100,00000001 | 9.900 | 3,96 | HIGH | Se cotiza, pero la ejecución da 422 INSUFFICIENT_FUNDS |
+| 0,12345678 | 0,00123457 (↑) | 0,12222221 | 0,00004888 (↓) | LOW | Verifica ambos redondeos |
+| 0,00002526 | 0,00000026 | 0,00002500 | 0,00000001 | LOW | El mínimo aceptado |
+| 0,00002525 | 0,00000026 | 0,00002499 | 0 | — | 422 AMOUNT_TOO_SMALL |
+| 1,123456789 | — | — | — | — | 400: más de 8 decimales |
+| `0`, `-1`, `"abc"`, `1e3`, `999.99` (número JSON) | — | — | — | — | 400 |
+
+Otros casos borde:
+- **Cotización en el límite de vigencia:** está vencida si `now() >= expires_at`, con la hora de la base.
+- **Cotización de otro usuario:** 404 (no se revela si existe).
+- **Doble ejecución de la misma cotización con claves distintas en paralelo:** una gana; la otra recibe 409 QUOTE_IN_USE
+  o QUOTE_ALREADY_USED.
+- **Dos cotizaciones HIGH de 6.000 ejecutadas en paralelo con saldo de 10.000:** una queda PENDING_REVIEW; la otra recibe
+  422 INSUFFICIENT_FUNDS (FAILED si ya había pasado la primera transacción).
+- **Misma clave en paralelo:** una se procesa; la otra recibe 409 IDEMPOTENCY_IN_PROGRESS, o la respuesta reproducida si
+  la primera ya terminó.
+- **Misma clave y mismo contenido tras un 503:** se reprocesa (la clave estaba liberada) y puede terminar COMPLETED.
+- **Aprobar y rechazar a la vez:** una gana; la otra recibe 409 EXCHANGE_NOT_PENDING.
+- **Aprobar una HIGH cuya cotización ya venció:** se aprueba con el precio original (R13).
+- **Aprobar algo que está COMPLETED, REJECTED o FAILED:** 409.
+
+## 8. Supuestos
+
+- **S1.** El umbral de riesgo se evalúa sobre el **monto bruto de origen** (`source_amount`, comisión incluida), que es
+  el "monto de origen" del enunciado.
+- **S2.** La comisión no se acredita en ninguna wallet de la plataforma: no se modelan tesorería ni proveedor de
+  liquidez (3.5). El débito al usuario es el monto bruto.
+- **S3.** Los montos se reciben como **string JSON**; un número JSON da 400. Así `JSON.parse` nunca convierte un monto
+  a `Number`, como exige R6.
+- **S4.** Los usuarios de la semilla se consideran aprobados; no se modela el estado de aprobación (KYC).
+- **S5.** `GET /wallets` y sus movimientos están abiertos a cualquier usuario autenticado sobre sus propias wallets
+  (compliance-001 tiene wallets en cero según 3.3). No es una acción de negocio, así que no afecta la segregación.
+- **S6.** La validez de la cotización usa la hora de PostgreSQL (`now()`), para evitar desfases entre el reloj de Node y
+  el de la base.
+- **S7.** El servicio de cumplimiento tiene un timeout configurable (`COMPLIANCE_TIMEOUT_MS`, 2.000 ms por defecto). Un
+  timeout cuenta como falla (D7). Para una demostración manual se puede forzar la falla con
+  `COMPLIANCE_MOCK_FAIL=true`.
+- **S8.** Cada movimiento se crea ya en `CONFIRMED`, dentro de la transacción de su operación; no hay movimientos
+  pendientes. La corrección de un movimiento es otro movimiento, nunca una edición.
+- **S9.** La API no ofrece endpoints para crear usuarios, wallets ni depósitos; solo existe la semilla.
+
+## 9. Preguntas abiertas
+
+- **P1.** En D11 decidiste liberar la clave cuando el saldo es insuficiente en la segunda transacción. Yo extendí la
+  liberación también al caso en que se detecta en la **primera** transacción, por coherencia: si no, el mismo reintento
+  daría resultados distintos según el momento en que se detectó la falta de saldo. ¿Lo confirmas?
+- **P2.** S3 (montos como string JSON y 400 si llegan como número) es una consecuencia de R6 que no habíamos hablado.
+  ¿Lo confirmas?
