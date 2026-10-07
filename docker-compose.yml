@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: exchange
+      POSTGRES_PASSWORD: exchange
+      POSTGRES_DB: exchange
+    # 5433 en el host para no chocar con un Postgres local en el 5432.
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # `docker compose up --wait` espera a que este healthcheck pase antes de devolver el control.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:
