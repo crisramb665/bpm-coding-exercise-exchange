@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  // rootDir explícito (TypeScript 6 lo exige): así la salida queda en dist/main.js, que es lo que ejecuta `nest start`.
+  "compilerOptions": {
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "scripts"]
+}

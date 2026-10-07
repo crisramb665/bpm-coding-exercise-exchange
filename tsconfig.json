@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "outDir": "./dist",
+    // TypeScript 6 ya no incluye automáticamente los tipos de @types/*; hay que declararlos.
+    "types": ["node"],
+    "sourceMap": true,
+    "declaration": false,
+    "incremental": true,
+
+    // Necesarios para la inyección de dependencias de Nest: los decoradores leen los tipos en tiempo de ejecución.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    // Los DTOs de class-validator se rellenan desde el body, no desde un constructor.
+    "strictPropertyInitialization": false,
+
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*", "test/**/*", "scripts/**/*"]
+}

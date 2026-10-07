@@ -109,7 +109,7 @@ almacenada").
 | 201 (COMPLETED o PENDING_REVIEW) | Se guarda la respuesta | Es el resultado definitivo de la operación. |
 | 404 QUOTE_NOT_FOUND, 409 QUOTE_ALREADY_USED, 422 QUOTE_EXPIRED | Se guarda la respuesta | Reintentar con el mismo contenido daría siempre lo mismo. |
 | 503 COMPLIANCE_UNAVAILABLE | **Se libera** (se borra la fila) | Es transitorio y la cotización sigue disponible (D7); el cliente reintenta con la misma clave. |
-| 422 INSUFFICIENT_FUNDS (en cualquiera de las dos transacciones) | **Se libera** | Es transitorio: el saldo puede cambiar. ⚠ Ver P1. |
+| 422 INSUFFICIENT_FUNDS (en cualquiera de las dos transacciones) | **Se libera** | Es transitorio: el saldo puede cambiar. Liberarla también en Tx1 hace que el mismo reintento dé el mismo resultado sin importar cuándo se detectó la falta de saldo (P1, confirmada). |
 | 409 QUOTE_IN_USE (otro intercambio vivo sobre la cotización) | **Se libera** | Es transitorio: el otro intercambio puede terminar FAILED. |
 | 400, 401, 403 | No se consume | Se rechaza antes de reservar la clave. |
 
@@ -366,8 +366,8 @@ Otros casos borde:
 
 ## 9. Preguntas abiertas
 
-- **P1.** En D11 decidiste liberar la clave cuando el saldo es insuficiente en la segunda transacción. Yo extendí la
-  liberación también al caso en que se detecta en la **primera** transacción, por coherencia: si no, el mismo reintento
-  daría resultados distintos según el momento en que se detectó la falta de saldo. ¿Lo confirmas?
-- **P2.** S3 (montos como string JSON y 400 si llegan como número) es una consecuencia de R6 que no habíamos hablado.
-  ¿Lo confirmas?
+No quedan preguntas abiertas. Historial:
+
+- **P1 (confirmada el 2026-10-07).** La clave de idempotencia se libera ante INSUFFICIENT_FUNDS, se detecte en Tx1 o en
+  Tx2 (ver D11).
+- **P2 (confirmada el 2026-10-07).** Los montos se reciben como string JSON; un número JSON da 400 (S3).
