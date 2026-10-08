@@ -4,7 +4,9 @@ import { INestApplication, Type } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { Pool } from 'pg';
 import { AppModule } from '../src/app.module';
+import { withTransaction } from '../src/common/db/pg-pool';
 import { calculateQuote, FEE_RATE, formatAmount, PRICE } from '../src/common/money/money';
+import { LedgerRepository } from '../src/wallets/ledger.repository';
 import { TEST_DATABASE_URL } from './env';
 
 // Pool propio de las pruebas, para preparar y consultar datos directamente en SQL.
@@ -85,8 +87,7 @@ export async function insertExchange(quoteId: string, options: { userId?: string
   return rows[0].id;
 }
 
-// Aplica un movimiento de ledger a mano (saldo + movimiento en una sola sentencia), para preparar escenarios.
-// Las columnas se eligen de una lista fija, nunca desde entrada externa. La app lo hará con LedgerRepository (T10).
+// Aplica un movimiento de ledger con el MISMO código de producción (LedgerRepository), para preparar escenarios.
 export async function ledgerMove(m: {
   userId: string;
   asset: string;
@@ -95,19 +96,56 @@ export async function ledgerMove(m: {
   balanceType: 'AVAILABLE' | 'HELD';
   amount: string;
 }): Promise<void> {
-  const column = m.balanceType === 'AVAILABLE' ? 'available' : 'held';
-  const sign = m.entryType === 'CREDIT' ? '+' : '-';
-  const after = column; // tras el UPDATE, RETURNING entrega el saldo nuevo
-  await testPool.query(
-    `WITH moved AS (
-       UPDATE wallets SET ${column} = ${column} ${sign} $3
-        WHERE user_id = $1 AND asset_code = $2
-       RETURNING id, ${after} AS balance_after
-     )
-     INSERT INTO ledger_entries (wallet_id, reference_type, exchange_id, entry_type, balance_type, amount, balance_before, balance_after)
-     SELECT id, 'EXCHANGE', $4, $5, $6, $3,
-            CASE WHEN $5 = 'CREDIT' THEN balance_after - $3 ELSE balance_after + $3 END, balance_after
-       FROM moved`,
-    [m.userId, m.asset, m.amount, m.exchangeId, m.entryType, m.balanceType],
+  const id = await walletIdOf(m.userId, m.asset);
+  await withTransaction(testPool, (client) =>
+    new LedgerRepository().applyMovement(client, {
+      walletId: id,
+      entryType: m.entryType,
+      balanceType: m.balanceType,
+      amount: m.amount,
+      reference: { type: 'EXCHANGE', exchangeId: m.exchangeId },
+    }),
   );
+}
+
+// id de la wallet de un usuario y un activo.
+export async function walletIdOf(userId: string, asset: string): Promise<string> {
+  const { rows } = await testPool.query<{ id: string }>(
+    'SELECT id FROM wallets WHERE user_id = $1 AND asset_code = $2',
+    [userId, asset],
+  );
+  return rows[0].id;
+}
+
+// Comprueba la CONTABILIDAD de toda la base (lo que haría una conciliación en producción). Si algo no cuadra, la
+// prueba falla mostrando exactamente qué wallet o qué movimiento está mal. Se llama al final de las pruebas que mueven saldos.
+//   1) El saldo de cada wallet (available y held) es igual a la suma de sus movimientos: créditos menos débitos.
+//   2) Cada movimiento empieza donde terminó el anterior de la misma wallet y del mismo saldo (cadena sin huecos),
+//      arrancando en 0. Detecta un saldo modificado por fuera del ledger o un movimiento con el "antes" equivocado.
+export async function assertReconciled(): Promise<void> {
+  const signed = "CASE l.entry_type WHEN 'CREDIT' THEN l.amount ELSE -l.amount END";
+  const balanceMismatches = await testPool.query(
+    `SELECT user_id, asset_code, available, ledger_available, held, ledger_held FROM (
+       SELECT w.user_id, w.asset_code, w.available, w.held,
+              COALESCE(SUM(CASE WHEN l.balance_type = 'AVAILABLE' THEN ${signed} END), 0)::numeric(28,8) AS ledger_available,
+              COALESCE(SUM(CASE WHEN l.balance_type = 'HELD'      THEN ${signed} END), 0)::numeric(28,8) AS ledger_held
+         FROM wallets w LEFT JOIN ledger_entries l ON l.wallet_id = w.id
+        GROUP BY w.id
+     ) t
+      WHERE available <> ledger_available OR held <> ledger_held
+      ORDER BY user_id, asset_code`,
+  );
+  const brokenChains = await testPool.query(
+    `SELECT wallet_id, balance_type, id, balance_before, expected_before FROM (
+       SELECT wallet_id, balance_type, id, balance_before,
+              COALESCE(LAG(balance_after) OVER (PARTITION BY wallet_id, balance_type ORDER BY id), 0)::numeric(28,8) AS expected_before
+         FROM ledger_entries
+     ) t
+      WHERE balance_before <> expected_before
+      ORDER BY id`,
+  );
+  expect({ walletsQueNoCuadranConSuLedger: balanceMismatches.rows, movimientosConCadenaRota: brokenChains.rows }).toEqual({
+    walletsQueNoCuadranConSuLedger: [],
+    movimientosConCadenaRota: [],
+  });
 }
