@@ -45,4 +45,11 @@ export class IdempotencyRepository {
   async linkExchange(client: PoolClient, userId: string, key: string, exchangeId: string): Promise<void> {
     await client.query('UPDATE idempotency_keys SET exchange_id = $3 WHERE user_id = $1 AND key = $2', [userId, key, exchangeId]);
   }
+
+  // Libera la clave: borra la fila. Se usa cuando el resultado es transitorio (503, saldo insuficiente) para que el cliente
+  // pueda reintentar con la MISMA clave (D11). Va dentro de la misma transacción que deja la operación en FAILED, así que
+  // nadie puede ver la operación FAILED con la clave aún "en curso", ni al revés.
+  async release(client: PoolClient, userId: string, key: string): Promise<void> {
+    await client.query('DELETE FROM idempotency_keys WHERE user_id = $1 AND key = $2', [userId, key]);
+  }
 }

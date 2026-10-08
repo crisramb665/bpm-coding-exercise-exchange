@@ -7,8 +7,8 @@ import { assertReconciled, closeDb, createApp, insertExchange, insertQuote, ledg
 const UNKNOWN_QUOTE = '00000000-0000-4000-8000-000000000001';
 
 // Primera transacción de POST /exchanges (T11): idempotencia, bloqueo de la cotización, validaciones y reserva en
-// PROCESSING. La ejecución completa (cumplimiento y saldos) es la T12; por eso una reserva exitosa responde 501 por HTTP
-// y los casos de éxito se prueban llamando a ExchangesService.begin() directamente.
+// PROCESSING. Los casos de éxito se prueban llamando a ExchangesService.begin() directamente, que es solo la primera
+// transacción; el flujo completo (cumplimiento y saldos) se prueba en exchanges-execute.e2e-spec.ts.
 describe('POST /exchanges: primera transacción', () => {
   let app: INestApplication;
   let service: ExchangesService;
@@ -215,7 +215,7 @@ describe('POST /exchanges: primera transacción', () => {
 
       const result = await service.begin('user-001', 'key-ok', quote);
 
-      expect(result).toEqual({ kind: 'STARTED', exchangeId: expect.any(String) });
+      expect(result).toEqual({ kind: 'STARTED', exchangeId: expect.any(String), sourceAsset: 'USDT-SBX', sourceAmount: '999.99000000' });
       const exchangeId = (result as { exchangeId: string }).exchangeId;
 
       const exchange = (await testPool.query('SELECT * FROM exchanges WHERE id = $1', [exchangeId])).rows[0];
@@ -244,13 +244,6 @@ describe('POST /exchanges: primera transacción', () => {
       expect((await testPool.query('SELECT available, held FROM wallets ORDER BY id')).rows).toEqual(balancesBefore);
       expect(await count('ledger_entries')).toBe(1);
       await assertReconciled();
-    });
-
-    it('por HTTP responde 501 hasta que la T12 complete la ejecución, y la operación queda reservada', async () => {
-      const quote = await insertQuote({ amount: '100' });
-      const res = await post(body(quote)).expect(501);
-      expect(res.body.error.code).toBe('NOT_IMPLEMENTED');
-      expect(await count('exchanges')).toBe(1);
     });
   });
 

@@ -317,6 +317,7 @@ Rol: USER. Encabezado obligatorio `Idempotency-Key` (de 1 a 255 caracteres). Cue
 | 409 | `QUOTE_IN_USE` | Hay otro intercambio vivo (PROCESSING) sobre la cotización. | No (se libera) |
 | 422 | `QUOTE_EXPIRED` | Venció (se marca EXPIRED). | Sí |
 | 422 | `INSUFFICIENT_FUNDS` | El disponible es menor que `source_amount`. Si se detecta en la segunda transacción, la operación queda FAILED. | No (se libera) |
+| 409 | `EXCHANGE_NOT_PROCESSING` | Mientras se esperaba a cumplimiento, la operación dejó de estar en PROCESSING (la marcó FAILED la recuperación de huérfanas, D9). No se toca nada. | No |
 | 503 | `COMPLIANCE_UNAVAILABLE` | El servicio falló o superó el timeout; la operación queda FAILED y `details` incluye `exchange_id`. | No (se libera) |
 
 Cuerpo de la respuesta 201: el mismo que `GET /exchanges/:id`.

@@ -4,6 +4,10 @@ import Decimal from 'decimal.js';
 import { Pool, PoolClient } from 'pg';
 import { PG_POOL, withTransaction } from '../common/db/pg-pool';
 import { BusinessError, toErrorBody } from '../common/errors/business-error';
+import { ComplianceClient } from '../compliance-service/compliance.client';
+import { ComplianceResult, RiskLevel } from '../compliance-service/compliance.types';
+import { LedgerRepository } from '../wallets/ledger.repository';
+import { ExchangeDetailRepository } from './exchange-detail.repository';
 import { ExchangesRepository } from './exchanges.repository';
 import { IdempotencyRepository } from './idempotency.repository';
 
@@ -16,12 +20,18 @@ export interface ExchangeResponse {
 
 // Resultado de la primera transacción (Tx1).
 export type BeginResult =
-  | { kind: 'STARTED'; exchangeId: string } // reservado: la operación existe en PROCESSING; falta ejecutarla (Tx2)
+  // Reservado: la operación existe en PROCESSING y falta ejecutarla (Tx2). Se devuelve lo que hace falta para consultar
+  // a cumplimiento sin volver a leer la base.
+  | { kind: 'STARTED'; exchangeId: string; sourceAsset: string; sourceAmount: string }
   | { kind: 'REPLAY'; status: number; body: unknown }; // la clave ya tenía una respuesta definitiva guardada
 
 // Lo que decide una Tx1 antes de cerrar la transacción. REJECTED = error definitivo que se guarda bajo la clave y se
 // confirma (COMMIT); los errores transitorios NO pasan por aquí: se lanzan dentro de la transacción para hacer ROLLBACK.
 type Tx1Result = BeginResult | { kind: 'REJECTED'; error: BusinessError };
+
+// Resultado de la segunda transacción (Tx2). FAILED = la operación quedó FAILED, la clave se liberó y la transacción se
+// confirmó; el error se le responde al cliente DESPUÉS del commit.
+type Tx2Result = { kind: 'DONE'; body: unknown } | { kind: 'FAILED'; error: BusinessError };
 
 @Injectable()
 export class ExchangesService {
@@ -29,17 +39,29 @@ export class ExchangesService {
     @Inject(PG_POOL) private readonly pool: Pool,
     private readonly exchanges: ExchangesRepository,
     private readonly idempotency: IdempotencyRepository,
+    private readonly details: ExchangeDetailRepository,
+    private readonly ledger: LedgerRepository,
+    private readonly compliance: ComplianceClient,
   ) {}
 
+  // POST /exchanges completo (docs/plan.md §5):  Tx1 (reservar) → consultar a cumplimiento → Tx2 (aplicar).
   async create(userId: string, idempotencyKey: string, quoteId: string): Promise<ExchangeResponse> {
-    const result = await this.begin(userId, idempotencyKey, quoteId);
-    if (result.kind === 'REPLAY') return { status: result.status, body: result.body, replayed: true };
+    const started = await this.begin(userId, idempotencyKey, quoteId);
+    if (started.kind === 'REPLAY') return { status: started.status, body: started.body, replayed: true };
 
-    // La ejecución (consultar a cumplimiento y mover saldos: Tx2) llega en la T12. Hasta entonces una reserva exitosa
-    // deja la operación en PROCESSING y se responde 501 para no aparentar que se ejecutó.
-    throw new BusinessError('NOT_IMPLEMENTED', 501, 'La ejecución del intercambio se completa en la tarea T12', {
-      exchange_id: result.exchangeId,
+    // Entre las dos transacciones, FUERA de toda transacción: no hay ninguna fila ni conexión retenida mientras se espera
+    // a un servicio que en producción sería externo y lento. El cliente nunca lanza: una falla llega como outcome 'ERROR'.
+    const check = await this.compliance.assess({
+      exchangeId: started.exchangeId,
+      userId,
+      sourceAsset: started.sourceAsset,
+      sourceAmount: started.sourceAmount,
     });
+
+    const result = await withTransaction(this.pool, (client) => this.execute(client, userId, idempotencyKey, started.exchangeId, check));
+
+    if (result.kind === 'FAILED') throw result.error; // la operación ya quedó FAILED y confirmada; ahora se responde el error
+    return { status: 201, body: result.body, replayed: false };
   }
 
   // PRIMERA TRANSACCIÓN (docs/plan.md §5): corta y sin llamadas externas. Reserva la clave de idempotencia, bloquea la
@@ -116,7 +138,120 @@ export class ExchangesService {
     await this.exchanges.insertEvent(client, exchangeId, null, 'PROCESSING', userId);
     await this.idempotency.linkExchange(client, userId, key, exchangeId);
 
-    return { kind: 'STARTED', exchangeId };
+    return { kind: 'STARTED', exchangeId, sourceAsset: quote.source_asset, sourceAmount: quote.source_amount };
+  }
+
+  // SEGUNDA TRANSACCIÓN (docs/plan.md §5): aplica el resultado de cumplimiento. Bloquea en el orden global
+  // exchange → quote → wallets (ordenadas por id), vuelve a validar el saldo BAJO bloqueo y mueve el dinero con
+  // LedgerRepository. O queda todo (movimientos, estado de la operación, cotización, respuesta guardada) o no queda nada.
+  private async execute(
+    client: PoolClient,
+    userId: string,
+    key: string,
+    exchangeId: string,
+    check: ComplianceResult,
+  ): Promise<Tx2Result> {
+    // 1) La operación. Si ya no está en PROCESSING (la recuperación de huérfanas la marcó FAILED mientras se esperaba a
+    // cumplimiento, D9) no se toca nada: ya no hay a quién aplicarle el resultado.
+    const exchange = await this.exchanges.lockExchange(client, exchangeId);
+    if (!exchange || exchange.status !== 'PROCESSING') {
+      throw new BusinessError('EXCHANGE_NOT_PROCESSING', 409, 'La operación ya no está en proceso', { exchange_id: exchangeId });
+    }
+
+    // 2) La cotización, con lo que se cotizó (R9: no se recalcula nada) y los activos de cada lado (D18).
+    const quote = await this.exchanges.lockQuoteForExecution(client, exchange.quote_id);
+
+    // 3) Las wallets, ordenadas por id. Desde aquí el saldo leído no puede cambiar hasta el COMMIT: es lo que impide
+    // que dos operaciones simultáneas gasten el mismo saldo.
+    const wallets = await this.ledger.lockWallets(client, userId, [quote.source_asset, quote.target_asset]);
+    const sourceWallet = wallets.find((w) => w.asset === quote.source_asset);
+    const targetWallet = wallets.find((w) => w.asset === quote.target_asset);
+    if (!sourceWallet || !targetWallet) throw new Error(`Faltan wallets de ${userId} para ${quote.source_asset}/${quote.target_asset}`);
+
+    // 4) Dejar constancia de la consulta a cumplimiento, haya salido bien o mal.
+    await this.exchanges.insertComplianceCheck(client, exchangeId, check);
+
+    // Cierra la operación como FAILED: sin movimientos, con su motivo, y libera la clave de idempotencia (D11) para que
+    // el cliente reintente con la misma clave. La cotización NO se marca USED: sigue disponible (D7, D8).
+    const fail = async (reason: string, riskLevel: RiskLevel | null, error: BusinessError): Promise<Tx2Result> => {
+      await this.exchanges.updateExchange(client, exchangeId, { status: 'FAILED', riskLevel, requiresFollowUp: false, failureReason: reason });
+      await this.exchanges.insertEvent(client, exchangeId, 'PROCESSING', 'FAILED', null, reason);
+      await this.idempotency.release(client, userId, key);
+      return { kind: 'FAILED', error };
+    };
+
+    // 5a) El servicio de cumplimiento falló o no respondió a tiempo: no se mueve nada (R12, D7).
+    if (check.outcome === 'ERROR') {
+      return fail(
+        'COMPLIANCE_UNAVAILABLE',
+        null,
+        new BusinessError('COMPLIANCE_UNAVAILABLE', 503, 'El servicio de cumplimiento no está disponible, intenta de nuevo', { exchange_id: exchangeId }),
+      );
+    }
+    const risk = check.riskLevel;
+
+    // 5b) Saldo, vuelto a leer BAJO bloqueo. El de la primera transacción era solo una comprobación rápida: pudo gastarse
+    // en otra operación mientras se esperaba a cumplimiento.
+    if (new Decimal(sourceWallet.available).lt(quote.source_amount)) {
+      return fail(
+        'INSUFFICIENT_FUNDS',
+        risk,
+        new BusinessError('INSUFFICIENT_FUNDS', 422, 'El saldo disponible es insuficiente', {
+          available: sourceWallet.available,
+          required: quote.source_amount,
+          asset: quote.source_asset,
+          exchange_id: exchangeId,
+        }),
+      );
+    }
+
+    // 5c / 5d) Mover el dinero. Siempre sale primero el débito del disponible, con el monto bruto cotizado (S2).
+    const reference = { type: 'EXCHANGE', exchangeId } as const;
+    await this.ledger.applyMovement(client, {
+      walletId: sourceWallet.id,
+      entryType: 'DEBIT',
+      balanceType: 'AVAILABLE',
+      amount: quote.source_amount,
+      reference,
+    });
+
+    let finalStatus: 'COMPLETED' | 'PENDING_REVIEW';
+    if (risk === 'HIGH') {
+      // HIGH: el monto pasa de disponible a retenido, en la misma wallet; Cumplimiento decide después (D1).
+      await this.ledger.applyMovement(client, {
+        walletId: sourceWallet.id,
+        entryType: 'CREDIT',
+        balanceType: 'HELD',
+        amount: quote.source_amount,
+        reference,
+      });
+      finalStatus = 'PENDING_REVIEW';
+    } else {
+      // LOW / MEDIUM: se acredita el XAUT cotizado, tal cual (R9).
+      await this.ledger.applyMovement(client, {
+        walletId: targetWallet.id,
+        entryType: 'CREDIT',
+        balanceType: 'AVAILABLE',
+        amount: quote.target_amount,
+        reference,
+      });
+      finalStatus = 'COMPLETED';
+    }
+
+    await this.exchanges.updateExchange(client, exchangeId, {
+      status: finalStatus,
+      riskLevel: risk,
+      requiresFollowUp: risk === 'MEDIUM', // solo MEDIUM completada queda marcada para seguimiento
+      failureReason: null,
+    });
+    await this.exchanges.markQuoteUsed(client, quote.id); // la cotización se consume aquí y no antes (D8)
+    await this.exchanges.insertEvent(client, exchangeId, 'PROCESSING', finalStatus, null, `Riesgo ${risk}`);
+
+    // La respuesta se arma DENTRO de la transacción, con lo que acaba de escribir, y se guarda bajo la clave: repetir la
+    // petición devolverá exactamente esto (D11).
+    const detail = await this.details.findById(client, exchangeId);
+    await this.idempotency.storeResponse(client, userId, key, 201, detail);
+    return { kind: 'DONE', body: detail };
   }
 
   // Paso 1 de Tx1. Devuelve undefined si la clave quedó reservada para esta petición; devuelve la respuesta a reproducir

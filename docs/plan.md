@@ -125,10 +125,6 @@ obligatorio, de 1 a 255 caracteres (400). Se calcula `requestHash = sha256(JSON 
 | 6 | `INSERT exchanges (status = 'PROCESSING', idempotency_key)` + evento `null → PROCESSING` + `UPDATE idempotency_keys SET exchange_id` | El índice parcial `exchanges_quote_live_uq` es el respaldo del paso 3. | La violación `23505` se traduce a 409 `QUOTE_IN_USE`. |
 | 7 | COMMIT | Libera la cotización. | |
 
-**Estado de implementación (T11):** esta transacción está completa y probada (`ExchangesService.begin()`), pero la ruta
-`POST /exchanges` responde `501 NOT_IMPLEMENTED` cuando la reserva sale bien, porque la ejecución (llamar a cumplimiento y
-mover saldos: Tx2) llega en la T12. Hasta entonces, cada reserva exitosa deja una operación en PROCESSING.
-
 Para "guardar" una respuesta se ejecuta `UPDATE idempotency_keys SET response_status, response_body` dentro de la
 misma transacción antes del COMMIT. Para "liberar" la clave en Tx1 basta con hacer ROLLBACK: la fila nunca llega a
 existir.
@@ -152,6 +148,25 @@ medida.
 | 5c | **LOW/MEDIUM** → `applyMovement` USDT DEBIT AVAILABLE, `applyMovement` XAUT CREDIT AVAILABLE → exchange COMPLETED con `risk_level` (y `requires_follow_up` si es MEDIUM) → cotización USED → evento → se guarda la respuesta 201 | — |
 | 5d | **HIGH** → `applyMovement` USDT DEBIT AVAILABLE + CREDIT HELD → PENDING_REVIEW → cotización USED → evento → se guarda la respuesta 201 | — |
 | 6 | COMMIT | |
+
+Detalles de la implementación (T12) que complementan la tabla:
+
+- El orden de bloqueos es exchange → quote → wallets (`ORDER BY id`). Qué protege cada uno:
+  - **exchange:** el `FOR UPDATE` temprano garantiza que el estado leído (¿sigue en PROCESSING?) no cambie hasta el
+    COMMIT. Una prueba hace que la recuperación de huérfanas marque FAILED *mientras Tx2 intenta empezar*: debe dar un
+    409 limpio, no un 500 al final (sin el bloqueo temprano Tx2 leería PROCESSING y fallaría en el último `UPDATE`).
+  - **wallets:** es lo que impide el doble gasto; lo prueban las peticiones HTTP simultáneas.
+  - **quote:** hoy ningún comportamiento observable depende de este bloqueo (los datos de la cotización son inmutables y el
+    `UPDATE` final ya toma el bloqueo de la fila); se conserva para respetar el orden global documentado, que es lo que
+    evita interbloqueos si mañana otra transacción necesitara las tres filas.
+- **5b** registra el `risk_level` de la operación aunque termine FAILED (ya se conocía), para la trazabilidad.
+- La respuesta 201 se arma **dentro** de Tx2, leyendo lo que esa misma transacción acaba de escribir
+  (`ExchangeDetailRepository.findById`), y es la que se guarda bajo la clave; repetirla devuelve exactamente eso.
+- Si al llegar a Tx2 la operación ya no está en PROCESSING, se responde 409 `EXCHANGE_NOT_PROCESSING` sin tocar nada (D9).
+- Los movimientos usan los activos de la cotización guardada (D18) y los montos tal cual se cotizaron (R9): `source_amount`
+  para el débito y la retención, `target_amount` para el crédito de XAUT. Nada se recalcula.
+- `ComplianceClient.assess()` se llama entre las dos transacciones; una prueba verifica que en ese momento no hay filas
+  bloqueadas ni conexiones en "idle in transaction".
 
 Si algo inesperado lanza una excepción en Tx2, se hace ROLLBACK y la operación queda en PROCESSING con la clave "en
 curso". Ese es exactamente el caso que cubre la recuperación documentada en D9 (ver sección 8).
