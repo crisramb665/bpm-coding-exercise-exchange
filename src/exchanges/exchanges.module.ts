@@ -14,5 +14,7 @@ import { IdempotencyRepository } from './idempotency.repository';
   imports: [ComplianceServiceModule, WalletsModule],
   controllers: [ExchangesController],
   providers: [ExchangesService, ExchangesQueryService, ExchangesRepository, IdempotencyRepository, ExchangeDetailRepository],
+  // La revisión de Cumplimiento (compliance-review) reutiliza estas dos para bloquear la operación, actualizarla y armar su detalle.
+  exports: [ExchangesRepository, ExchangeDetailRepository],
 })
 export class ExchangesModule {}

@@ -354,6 +354,9 @@ Roles: el dueño o COMPLIANCE. Devuelve el detalle completo y la trazabilidad de
 Rol: COMPLIANCE. Devuelve las operaciones en PENDING_REVIEW, de la más antigua a la más reciente.
 
 - 200 → `[{ id, user_id, user_name, source_asset, source_amount, target_asset, target_amount, price, risk_level, created_at }]`
+- `?limit=` de 1 a 200 (50 por defecto), igual que en los demás listados (S10). Al ser de la más antigua a la más reciente, un tope
+  de 50 deja ver primero lo que más lleva esperando.
+- Las operaciones del propio revisor no se excluyen (no puede tener ninguna: COMPLIANCE no puede ejecutar intercambios).
 
 ### 5.8 `PATCH /compliance/exchanges/:id/approve`
 
@@ -361,7 +364,10 @@ Rol: COMPLIANCE. Cuerpo opcional `{ "reason": "…" }`.
 
 - 200 → detalle de la operación (COMPLETED).
 - 404 `EXCHANGE_NOT_FOUND`.
-- 409 `EXCHANGE_NOT_PENDING` si no está en PENDING_REVIEW (incluye la decisión duplicada o concurrente).
+- 409 `EXCHANGE_NOT_PENDING` si no está en PENDING_REVIEW (incluye la decisión duplicada o concurrente); `details.status` indica
+  en qué estado está.
+- El revisor queda como `actor_id` del evento y como `reviewer_id` de la decisión; se movilizan las wallets del **dueño** de la
+  operación, nunca las del revisor (D17).
 
 ### 5.9 `PATCH /compliance/exchanges/:id/reject`
 
@@ -473,7 +479,7 @@ Otros casos borde:
 - **S8.** Cada movimiento se crea ya en `CONFIRMED`, dentro de la transacción de su operación; no hay movimientos
   pendientes. La corrección de un movimiento es otro movimiento, nunca una edición.
 - **S9.** La API no ofrece endpoints para crear usuarios, wallets ni depósitos; solo existe la semilla.
-- **S10.** `GET /exchanges` admite `?limit=` (1 a 200, 50 por defecto), igual que los movimientos de wallets. El enunciado no
+- **S10.** `GET /exchanges` y `GET /compliance/exchanges/pending` admiten `?limit=` (1 a 200, 50 por defecto), igual que los movimientos de wallets. El enunciado no
   habla de paginación; se añade solo un tope para que una lista no crezca sin límite. No hay paginación por páginas ni
   filtros por estado: el orden es siempre del más reciente al más antiguo.
 

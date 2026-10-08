@@ -176,8 +176,9 @@ curso". Ese es exactamente el caso que cubre la recuperación documentada en D9 
 Una sola transacción:
 
 1. `SELECT exchange FOR UPDATE`. Si no existe: 404. Si no está en PENDING_REVIEW: 409 `EXCHANGE_NOT_PENDING`.
-2. Leer la cotización (sin bloqueo: sus montos son inmutables).
-3. `SELECT wallets … ORDER BY id FOR UPDATE`.
+2. Leer la cotización guardada. Se bloquea igual (`FOR UPDATE`) para respetar el orden global exchange → quote → wallets; sus montos
+   son inmutables, así que no hay carrera, pero un orden único para todos los flujos es lo que evita interbloqueos.
+3. `SELECT wallets … ORDER BY id FOR UPDATE`, de las wallets **del dueño de la operación** (no las del revisor).
 4. Según la acción:
    - **Aprobar:** USDT DEBIT HELD + XAUT CREDIT AVAILABLE → COMPLETED.
    - **Rechazar:** USDT DEBIT HELD + USDT CREDIT AVAILABLE → REJECTED.

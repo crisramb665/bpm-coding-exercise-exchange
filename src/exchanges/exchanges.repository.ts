@@ -14,6 +14,7 @@ export interface LockedExchange {
   user_id: string;
   quote_id: string;
   status: string;
+  risk_level: RiskLevel | null;
 }
 
 // Lo que la segunda transacción necesita de la cotización guardada: el monto a debitar y el XAUT a acreditar, tal cual se
@@ -28,7 +29,7 @@ export interface QuoteForExecution {
 }
 
 export interface ExchangeUpdate {
-  status: 'COMPLETED' | 'PENDING_REVIEW' | 'FAILED';
+  status: 'COMPLETED' | 'PENDING_REVIEW' | 'REJECTED' | 'FAILED';
   riskLevel: RiskLevel | null;
   requiresFollowUp: boolean;
   failureReason: string | null;
@@ -119,7 +120,7 @@ export class ExchangesRepository {
   // bloquear es lo que impide pisar a la recuperación de operaciones huérfanas (D9), que también bloquea esta fila.
   async lockExchange(client: PoolClient, exchangeId: string): Promise<LockedExchange | undefined> {
     const { rows } = await client.query<LockedExchange>(
-      'SELECT id, user_id, quote_id, status FROM exchanges WHERE id = $1 FOR UPDATE',
+      'SELECT id, user_id, quote_id, status, risk_level FROM exchanges WHERE id = $1 FOR UPDATE',
       [exchangeId],
     );
     return rows[0];
