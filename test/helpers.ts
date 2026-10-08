@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Type } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { Pool } from 'pg';
 import { AppModule } from '../src/app.module';
@@ -21,12 +21,17 @@ export async function resetDb(): Promise<void> {
   await testPool.query(SEED_SQL);
 }
 
-// Levanta la app completa en memoria (sin abrir un puerto). `overrides` permite sustituir providers,
-// por ejemplo el servicio de cumplimiento por uno que falla: createApp((b) => b.overrideProvider(X).useValue(Y)).
-export async function createApp(
-  overrides?: (builder: TestingModuleBuilder) => TestingModuleBuilder,
-): Promise<INestApplication> {
-  let builder = Test.createTestingModule({ imports: [AppModule] });
+export interface CreateAppOptions {
+  // Sustituye providers, por ejemplo el servicio de cumplimiento por uno que falla:
+  // { overrides: (b) => b.overrideProvider(X).useValue(Y) }
+  overrides?: (builder: TestingModuleBuilder) => TestingModuleBuilder;
+  // Controllers que solo existen en las pruebas (p. ej. rutas de prueba para los guards).
+  controllers?: Type<unknown>[];
+}
+
+// Levanta la app completa en memoria (sin abrir un puerto).
+export async function createApp({ overrides, controllers }: CreateAppOptions = {}): Promise<INestApplication> {
+  let builder = Test.createTestingModule({ imports: [AppModule], controllers });
   if (overrides) builder = overrides(builder);
   const app = (await builder.compile()).createNestApplication();
   await app.init();

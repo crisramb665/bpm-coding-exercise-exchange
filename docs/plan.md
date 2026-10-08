@@ -236,7 +236,7 @@ Organización de los archivos:
 - `test/e2e/exchanges.e2e-spec.ts`
 - `test/e2e/compliance.e2e-spec.ts`
 - `test/e2e/integrity.e2e-spec.ts`
-- Helpers en `test/helpers.ts`: `createApp(overrides?)`, `resetDb()`, `quote(amount)`, `exchange(quoteId, key)`,
+- Helpers en `test/helpers.ts`: `createApp({ overrides?, controllers? })`, `resetDb()`, `quote(amount)`, `exchange(quoteId, key)`,
   `insertQuote({ amount, expiresAt })` y `assertReconciled()`.
 
 ## 10. Esquema del README
