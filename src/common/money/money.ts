@@ -11,6 +11,10 @@ export const PRICE = new Dec('2500'); // USDT-SBX por 1 XAUT-SBX (R8)
 export const FEE_RATE = new Dec('0.01'); // 1 % sobre el monto de origen (R8)
 export const AMOUNT_DECIMALS = 8; // precisión máxima de todo monto (R8, D5)
 
+// Par soportado: se paga con USDT-SBX para recibir XAUT-SBX (2). No hay otro par.
+export const SOURCE_ASSET = 'USDT-SBX';
+export const TARGET_ASSET = 'XAUT-SBX';
+
 // Umbrales de riesgo sobre el monto bruto de origen (R10, S1).
 const MEDIUM_FROM = new Dec('1000'); // desde 1.000 (inclusive) es MEDIUM
 const HIGH_ABOVE = new Dec('5000'); // 5.000 aún es MEDIUM; HIGH es estrictamente mayor

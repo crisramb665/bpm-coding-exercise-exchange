@@ -250,9 +250,9 @@ Organización de los archivos:
 5.  Arquitectura: diagrama (docs/diagram.mmd), módulos y capas, flujo de POST /exchanges en dos transacciones
 6.  Tecnologías y por qué
 7.  Modelo de datos y reglas de integridad (enlace a migrations/001_schema.sql)
-8.  Decisiones técnicas (resumen de D1–D17 con enlace a docs/spec.md; incluir la justificación de D17: wallets del rol COMPLIANCE)
+8.  Decisiones técnicas (resumen de D1–D18 con enlace a docs/spec.md; incluir la justificación de D17 (wallets del rol COMPLIANCE) y de D18 (un solo par))
 9.  Concurrencia e idempotencia (resumen de la sección 7 del plan)
-10. Supuestos y limitaciones
+10. Supuestos y limitaciones (entre ellas: solo el par USDT-SBX → XAUT-SBX, D18; y cómo se ampliaría)
 11. Mejoras para producción: autenticación real (OIDC + mTLS entre servicios, el rol sale del token), recuperación de
     huérfanos, outbox, reintentos con backoff y circuit breaker para cumplimiento, partida doble, observabilidad,
     permisos de la base de datos (sin UPDATE directo a wallets ni TRUNCATE)

@@ -178,6 +178,31 @@ USER y se descartó por las siguientes razones:
 identidad. Aquí, con una autenticación simplificada y una sola tabla de usuarios, se conserva la uniformidad del
 modelo y se hace cumplir la segregación con permisos.
 
+**D18. Solo se soporta el par USDT-SBX → XAUT-SBX (un solo sentido).** `POST /quotes` acepta únicamente
+`source_asset = USDT-SBX` y `target_asset = XAUT-SBX`. Cualquier otro valor (par invertido, mismo activo en ambos
+lados, un activo desconocido o campos ausentes) da 400 `VALIDATION_ERROR` indicando el campo. No existe la venta de
+XAUT-SBX por USDT-SBX.
+*Justificación:*
+1. **El enunciado define el flujo en una sola dirección.** La sección 2 dice que la plataforma "implementa un flujo de
+   intercambio de USDT-SBX por XAUT-SBX" y la 3.6 que el usuario "solicita una cotización de USDT-SBX por XAUT-SBX".
+2. **Todas las reglas están expresadas en USDT:** la comisión es "1 % sobre el monto en USDT-SBX, descontada del activo
+   de origen" (3.6), los umbrales de riesgo son "Monto en USDT-SBX" (3.7) y el tratamiento HIGH mueve "el monto requerido"
+   de USDT a retenido (3.8).
+3. **El sentido contrario exigiría inventar reglas que el enunciado no da:** sobre qué activo se cobra la comisión, si
+   los umbrales de 1.000 y 5.000 se aplican a XAUT o a su equivalente en USDT, qué dirección de redondeo es la segura
+   para la plataforma, y qué saldo se retiene en un caso HIGH. La sección 7 pide no ampliar el alcance.
+4. **Se piden los activos en el cuerpo de todos modos** porque 3.6 exige que la cotización registre "activo de origen y
+   destino", y así el contrato de la API no cambia el día que se agregue otro par; hoy el único valor válido de cada
+   campo es el del par soportado. Se responde 400 y no 422 porque es una violación del contrato (valor fuera del único
+   permitido), no una regla de negocio que dependa del estado.
+*Dónde está la restricción:* en el DTO (`@Equals`) y en las constantes `SOURCE_ASSET` / `TARGET_ASSET`; **no** en la base.
+La tabla `quotes` ya es genérica (`source_asset`, `target_asset`, solo exige que sean distintos).
+*Para soportar más pares (se declara en el README como evolución):* una tabla de pares con su precio, el activo sobre el
+que se cobra la comisión y el activo en que se miden los umbrales de riesgo; y una regla de redondeo explícita por
+sentido. Para que esa ampliación sea barata, la ejecución (T10–T12) debe leer los activos de la cotización guardada en
+lugar de escribir `USDT-SBX` / `XAUT-SBX` a mano: el ledger, la retención y la idempotencia operan sobre wallets y
+montos, no sobre activos concretos.
+
 ---
 
 ## 4. Modelo de cálculo de la cotización
@@ -238,6 +263,12 @@ Cuerpo: `{ "source_asset": "USDT-SBX", "target_asset": "XAUT-SBX", "source_amoun
   el par no es USDT-SBX → XAUT-SBX.
 - 403 si el rol es COMPLIANCE.
 - 422 `AMOUNT_TOO_SMALL` si el destino da 0 tras redondear (D12).
+- El cliente solo envía los activos y el monto: el precio, la comisión y la vigencia los fija el servidor. Una propiedad
+  desconocida (`price`, `user_id`…) da 400.
+- Los montos se devuelven siempre con 8 decimales (`"2500.00000000"`) y `fee_rate` con 6 (`"0.010000"`).
+- La vigencia es `QUOTE_TTL_SECONDS` (30 por defecto), medida con el reloj de la base. Un valor inválido (`0`, `-5`,
+  `abc`, `1.5`, vacío) impide arrancar la aplicación.
+- Cotizar no exige saldo ni mueve saldos (D14): un usuario con 10.000 USDT puede cotizar 50.000.
 
 ### 5.4 `POST /exchanges`
 
