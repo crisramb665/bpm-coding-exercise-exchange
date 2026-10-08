@@ -12,7 +12,7 @@
     "start": "nest start",
     "db:up": "docker compose up -d --wait db",
     "migrate": "tsx scripts/migrate.ts",
-    "up": "pnpm run db:up && pnpm run migrate && pnpm run start",
+    "up": "pnpm build && pnpm run db:up && pnpm run migrate && pnpm run start",
     "test": "pnpm run db:up && jest --runInBand"
   },
   "dependencies": {
