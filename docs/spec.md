@@ -203,6 +203,34 @@ sentido. Para que esa ampliación sea barata, la ejecución (T10–T12) debe lee
 lugar de escribir `USDT-SBX` / `XAUT-SBX` a mano: el ledger, la retención y la idempotencia operan sobre wallets y
 montos, no sobre activos concretos.
 
+**D19. El servicio de cumplimiento es dueño de sus umbrales; la lógica principal solo confía en su respuesta.** Los
+umbrales de R10 (< 1.000 LOW · 1.000 a 5.000 inclusive MEDIUM · > 5.000 HIGH) viven **únicamente** en el mock de
+cumplimiento (`MockComplianceProvider`). El módulo de dinero (`common/money`) calcula comisión y destino, pero ya no
+conoce niveles de riesgo, y el flujo de intercambio obtiene el riesgo siempre de lo que responde el servicio.
+*Justificación:*
+1. **R10 exige un servicio "desacoplado de la lógica principal".** Si el mock importara los umbrales del código de
+   negocio, el "servicio externo" compartiría código con aquello de lo que debe estar desacoplado, y reemplazarlo por
+   un proveedor real (Chainalysis, Sumsub) dejaría una copia de los umbrales sin dueño en nuestro código.
+2. **Evita una fuente de verdad duplicada y silenciosa.** Si el flujo también calculara el riesgo por su cuenta, dos
+   implementaciones podrían divergir sin que nada fallara. Con el contrato, el riesgo viene de un solo lugar.
+3. **No se perdió nada:** `riskLevelFor` no la usaba ningún código de producción (solo sus pruebas), y las pruebas de
+   fronteras (999,99 / 1.000 / 5.000 / 5.000,01) se movieron al mock, donde ahora ocurre la decisión.
+4. **Los umbrales son del proveedor, no del contrato:** si Cumplimiento cambiara las bandas, cambiaría el proveedor, no
+   el flujo de intercambio.
+
+*Contrato interno con el servicio de cumplimiento* (`src/compliance-service/compliance.types.ts`; no es un endpoint HTTP):
+
+| | |
+|---|---|
+| Entrada | `{ exchangeId, userId, sourceAsset, sourceAmount }`; `sourceAmount` es un string con el monto bruto de origen (S1). |
+| Salida correcta | `{ riskLevel: 'LOW' \| 'MEDIUM' \| 'HIGH' }` |
+| Cualquier otra cosa | Falla: el proveedor lanza, supera el tiempo máximo (`COMPLIANCE_TIMEOUT_MS`, 2.000 ms por defecto) o responde un nivel que no existe. |
+
+`ComplianceClient.assess()` **nunca lanza**: devuelve `outcome: 'OK'` (con `riskLevel`) u `outcome: 'ERROR'` (con
+`errorMessage`), y en ambos casos el proveedor, lo enviado, lo recibido y la duración en ms, que es exactamente lo que
+guarda una fila de `compliance_checks`. Una respuesta inválida se trata como falla, igual que un timeout (D7). Se llama
+siempre fuera de una transacción de base de datos.
+
 ---
 
 ## 4. Modelo de cálculo de la cotización
@@ -211,7 +239,7 @@ montos, no sobre activos concretos.
 fee_amount    = ceil8(source_amount × 0,01)       -- D5: hacia arriba
 net_amount    = source_amount − fee_amount
 target_amount = floor8(net_amount ÷ 2.500)        -- R8: hacia abajo
-risk_level    = f(source_amount)                  -- S1: monto bruto
+risk_level    = lo responde el servicio de cumplimiento a partir de source_amount (S1: monto bruto; D19)
 expires_at    = now() + 30 s                      -- hora de la base de datos
 ```
 

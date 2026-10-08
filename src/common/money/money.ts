@@ -5,8 +5,6 @@ import Decimal from 'decimal.js';
 // El clon evita además depender de (o alterar) la configuración global de decimal.js.
 const Dec = Decimal.clone({ precision: 40 });
 
-export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
-
 export const PRICE = new Dec('2500'); // USDT-SBX por 1 XAUT-SBX (R8)
 export const FEE_RATE = new Dec('0.01'); // 1 % sobre el monto de origen (R8)
 export const AMOUNT_DECIMALS = 8; // precisión máxima de todo monto (R8, D5)
@@ -14,10 +12,6 @@ export const AMOUNT_DECIMALS = 8; // precisión máxima de todo monto (R8, D5)
 // Par soportado: se paga con USDT-SBX para recibir XAUT-SBX (2). No hay otro par.
 export const SOURCE_ASSET = 'USDT-SBX';
 export const TARGET_ASSET = 'XAUT-SBX';
-
-// Umbrales de riesgo sobre el monto bruto de origen (R10, S1).
-const MEDIUM_FROM = new Dec('1000'); // desde 1.000 (inclusive) es MEDIUM
-const HIGH_ABOVE = new Dec('5000'); // 5.000 aún es MEDIUM; HIGH es estrictamente mayor
 
 export interface QuoteAmounts {
   feeAmount: Decimal;
@@ -50,15 +44,6 @@ export function calculateQuote(sourceAmount: Decimal.Value): QuoteAmounts {
   const targetAmount = netAmount.div(PRICE).toDecimalPlaces(AMOUNT_DECIMALS, Decimal.ROUND_DOWN);
 
   return { feeAmount, netAmount, targetAmount };
-}
-
-// Nivel de riesgo según el monto bruto de origen (R10):
-//   < 1.000 → LOW · 1.000 a 5.000 (ambos inclusive) → MEDIUM · > 5.000 → HIGH
-export function riskLevelFor(sourceAmount: Decimal.Value): RiskLevel {
-  const amount = new Dec(sourceAmount);
-  if (amount.lt(MEDIUM_FROM)) return 'LOW';
-  if (amount.lte(HIGH_ABOVE)) return 'MEDIUM';
-  return 'HIGH';
 }
 
 // Un monto como texto para la base de datos y la API: siempre 8 decimales, nunca notación científica.

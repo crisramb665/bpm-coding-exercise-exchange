@@ -1,43 +1,29 @@
 import Decimal from 'decimal.js';
-import { calculateQuote, formatAmount, riskLevelFor, RiskLevel } from '../../src/common/money/money';
+import { calculateQuote, formatAmount } from '../../src/common/money/money';
 import { randomAmounts } from '../helpers';
 
 // Caso B1 de docs/plan.md §9: la tabla de montos de docs/spec.md §7, comparada como strings (nunca como Number).
-describe('calculateQuote y riskLevelFor', () => {
-  // [monto USDT, comisión, neto, XAUT, riesgo]
-  const table: [string, string, string, string, RiskLevel][] = [
-    ['999.99', '9.99990000', '989.99010000', '0.39599604', 'LOW'],
-    ['1000', '10.00000000', '990.00000000', '0.39600000', 'MEDIUM'],
-    ['2500', '25.00000000', '2475.00000000', '0.99000000', 'MEDIUM'], // ejemplo del enunciado
-    ['5000', '50.00000000', '4950.00000000', '1.98000000', 'MEDIUM'],
-    ['5000.01', '50.00010000', '4950.00990000', '1.98000396', 'HIGH'],
-    ['10000', '100.00000000', '9900.00000000', '3.96000000', 'HIGH'],
-    ['10000.00000001', '100.00000001', '9900.00000000', '3.96000000', 'HIGH'],
-    ['0.12345678', '0.00123457', '0.12222221', '0.00004888', 'LOW'], // comisión ↑ y destino ↓
-    ['0.00002526', '0.00000026', '0.00002500', '0.00000001', 'LOW'], // el mínimo que da algo de XAUT
-    ['0.00002525', '0.00000026', '0.00002499', '0.00000000', 'LOW'], // destino 0 → AMOUNT_TOO_SMALL (D12)
+// El riesgo de cada monto lo decide el servicio de cumplimiento (D19) y se prueba en mock-compliance.spec.ts.
+describe('calculateQuote', () => {
+  // [monto USDT, comisión, neto, XAUT]
+  const table: [string, string, string, string][] = [
+    ['999.99', '9.99990000', '989.99010000', '0.39599604'],
+    ['1000', '10.00000000', '990.00000000', '0.39600000'],
+    ['2500', '25.00000000', '2475.00000000', '0.99000000'], // ejemplo del enunciado
+    ['5000', '50.00000000', '4950.00000000', '1.98000000'],
+    ['5000.01', '50.00010000', '4950.00990000', '1.98000396'],
+    ['10000', '100.00000000', '9900.00000000', '3.96000000'],
+    ['10000.00000001', '100.00000001', '9900.00000000', '3.96000000'],
+    ['0.12345678', '0.00123457', '0.12222221', '0.00004888'], // comisión ↑ y destino ↓
+    ['0.00002526', '0.00000026', '0.00002500', '0.00000001'], // el mínimo que da algo de XAUT
+    ['0.00002525', '0.00000026', '0.00002499', '0.00000000'], // destino 0 → AMOUNT_TOO_SMALL (D12)
   ];
 
-  it.each(table)('%s USDT → comisión %s, neto %s, %s XAUT, riesgo %s', (source, fee, net, target, risk) => {
+  it.each(table)('%s USDT → comisión %s, neto %s, %s XAUT', (source, fee, net, target) => {
     const q = calculateQuote(source);
     expect(formatAmount(q.feeAmount)).toBe(fee);
     expect(formatAmount(q.netAmount)).toBe(net);
     expect(formatAmount(q.targetAmount)).toBe(target);
-    expect(riskLevelFor(source)).toBe(risk);
-  });
-
-  describe('fronteras de riesgo (R10)', () => {
-    it.each([
-      ['0.00000001', 'LOW'],
-      ['999.99', 'LOW'],
-      ['999.99999999', 'LOW'], // un paso por debajo de 1.000
-      ['1000', 'MEDIUM'], // 1.000 ya es MEDIUM
-      ['5000', 'MEDIUM'], // 5.000 sigue siendo MEDIUM (inclusive)
-      ['5000.00000001', 'HIGH'], // un paso por encima de 5.000
-      ['5000.01', 'HIGH'],
-    ])('%s → %s', (amount, risk) => {
-      expect(riskLevelFor(amount)).toBe(risk);
-    });
   });
 
   describe('exactitud', () => {

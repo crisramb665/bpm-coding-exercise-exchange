@@ -78,10 +78,11 @@ HTTP ─► Controller (DTO + ValidationPipe, guards)
 | `common/db` | Provider `PG_POOL` (`new Pool`) y la función `withTransaction(pool, fn)`, que hace BEGIN, ejecuta `fn(client)`, y luego COMMIT, o ROLLBACK si hay error; siempre libera el cliente. Sin magia: unas 20 líneas. |
 | `common/auth` | `AuthGuard` global: lee `X-User-Id`, carga el usuario y lo deja en `req.user`; si no lo encuentra, 401. `@Roles('USER')` (`SetMetadata`) + `RolesGuard`, que responde 403. |
 | `common/errors` | `BusinessError(code, httpStatus, message, details?)` y un `ExceptionFilter` que lo serializa al formato de la spec (sección 5). Traduce la violación `23505` del índice `exchanges_quote_live_uq` a 409 `QUOTE_IN_USE`, como respaldo. |
-| `common/money` | `calculateQuote(sourceAmount: Decimal)` → `{ feeAmount, netAmount, targetAmount }` y `riskLevelFor(amount)`. Funciones puras con `Decimal.set({ precision: 40 })` y `ROUND_UP` / `ROUND_DOWN` explícitos. |
+| `common/money` | `calculateQuote(sourceAmount: Decimal)` → `{ feeAmount, netAmount, targetAmount }`, `formatAmount` y las constantes del par. No conoce niveles de riesgo (D19). Funciones puras con `Decimal.set({ precision: 40 })` y `ROUND_UP` / `ROUND_DOWN` explícitos. |
 | `wallets` | Controller y repository de lectura. También `LedgerRepository.applyMovement(client, { walletId, entryType, balanceType, amount, referenceType, exchangeId })`: **es la única función del código que modifica `wallets`**. |
 | `quotes` | `POST /quotes`. |
-| `compliance` | La interfaz `ComplianceProvider { assess(req): Promise<{ riskLevel }> }` y el token `COMPLIANCE_PROVIDER`. `MockComplianceProvider` implementa los umbrales de R10. `ComplianceClient` envuelve al provider con el timeout (`Promise.race`) y mide la duración. Los endpoints `/compliance/*` y `ComplianceReviewService` (aprobar y rechazar) también viven aquí. |
+| `compliance-service` | **Servicio automático** de monitoreo transaccional (3.7). La interfaz `ComplianceProvider { assess(req): Promise<{ riskLevel }> }` y el token `COMPLIANCE_PROVIDER`. `MockComplianceProvider` es **dueño** de los umbrales de R10 (D19). `ComplianceClient` envuelve al provider con el timeout (`Promise.race`), mide la duración, valida la respuesta y nunca lanza: devuelve un `ComplianceResult` OK/ERROR con la forma de `compliance_checks`. No usa `users` ni `X-User-Id`. |
+| `compliance-review` | **Revisión humana** (rol COMPLIANCE, T14): `GET /compliance/exchanges/pending`, `PATCH …/approve` y `PATCH …/reject`, y `ComplianceReviewService`. Requiere `X-User-Id` con rol COMPLIANCE. No usa el cliente del servicio automático: solo se conectan por `exchanges.risk_level` y el estado PENDING_REVIEW. |
 | `exchanges` | `ExchangesService` (crear, listar, detalle), `IdempotencyRepository` y `ExchangesRepository`. |
 
 ### `applyMovement`: el corazón del ledger
@@ -213,7 +214,9 @@ Casos borde y extras:
 
 | ID | Caso | Tipo | Verificación |
 | --- | --- | --- | --- |
-| B1 | Tabla de montos de la spec (sección 7) | unit | `calculateQuote` y `riskLevelFor` devuelven exactamente esos valores, incluidos los redondeos ↑ y ↓. |
+| B1 | Tabla de montos de la spec (sección 7) | unit | `calculateQuote` devuelve exactamente esos valores (comisión, neto, XAUT), incluidos los redondeos ↑ y ↓. El riesgo de cada monto se prueba en el mock (B1b). |
+| B1b | Umbrales de riesgo: 999,99 / 999,99999999 / 1.000 / 5.000 / 5.000,00000001 / 5.000,01 | unit | `MockComplianceProvider` devuelve LOW / LOW / MEDIUM / MEDIUM / HIGH / HIGH. |
+| B1c | Cliente de cumplimiento | unit | Timeout, proveedor que lanza, respuesta inválida y fallo tardío sin rechazos sin manejar dan ERROR sin lanzar; ningún temporizador queda vivo. |
 | B2 | 0,00002525 / 0,00002526 | e2e | 422 AMOUNT_TOO_SMALL / 201. |
 | B3 | Monto inválido (9 decimales, 0, negativo, número JSON) | e2e | 400. |
 | B4 | 10.000 exactos | e2e | PENDING_REVIEW con disponible 0. |

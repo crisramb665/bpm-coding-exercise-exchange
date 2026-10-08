@@ -60,7 +60,8 @@ src/
   wallets/       # GET /wallets, GET /wallets/:id/movements
   quotes/        # POST /quotes
   exchanges/     # POST /exchanges, GET /exchanges, GET /exchanges/:id, idempotencia, ledger
-  compliance/    # cliente del servicio de cumplimiento (interfaz + mock) y endpoints /compliance/*
+  compliance-service/  # servicio AUTOMÁTICO de monitoreo (R10): contrato, mock y cliente. Responde LOW/MEDIUM/HIGH
+  compliance-review/   # revisión HUMANA (rol COMPLIANCE): endpoints /compliance/* para aprobar o rechazar (T14)
 migrations/      # 001_schema.sql (fuente de verdad del esquema), 002_seed.sql, ...
 scripts/         # migrate.ts
 test/            # pruebas e2e con supertest contra Postgres en Docker
