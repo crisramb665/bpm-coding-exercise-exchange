@@ -42,3 +42,17 @@ export async function createApp({ overrides, controllers }: CreateAppOptions = {
 export async function closeDb(): Promise<void> {
   await testPool.end();
 }
+
+// Montos pseudoaleatorios como string con 8 decimales (entre 0.00000001 y ~1.000.000 USDT), reproducibles: la misma
+// semilla da siempre los mismos montos. Usa un generador congruencial y BigInt; no hay Math.random ni Number.
+export function randomAmounts(count: number, seed = 12345n): string[] {
+  let state = seed;
+  const next = (): bigint => (state = (state * 6364136223846793005n + 1442695040888963407n) % 2n ** 64n);
+  const amounts: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const digits = 1n + (next() % 14n); // magnitudes variadas: de 1 a 14 dígitos en unidades de 1e-8
+    const units = 1n + (next() % 10n ** digits);
+    amounts.push(`${units / 100000000n}.${(units % 100000000n).toString().padStart(8, '0')}`);
+  }
+  return amounts;
+}
