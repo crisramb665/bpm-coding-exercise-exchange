@@ -1,0 +1,163 @@
+Prueba técnica
+Líder Técnico Full-Stack — Plataforma de Activos Digitales
+1. Propósito
+Esta prueba evalúa la capacidad del candidato para diseñar e implementar el núcleo backend de una plataforma de activos digitales con
+wallets internas, control transaccional, trazabilidad, integración simulada con un servicio de monitoreo de cumplimiento y segregación
+básica de funciones.
+No se espera una solución lista para producción. El objetivo es observar cómo el candidato estructura la solución, protege la integridad
+de las operaciones, documenta sus decisiones y plantea la evolución del sistema hacia servicios de emisión, colocación, intercambio,
+transferencias y custodia.
+2. Contexto
+La plataforma administra wallets internas o cerradas. Cada usuario aprobado tiene una wallet por cada activo, y los saldos se
+administran exclusivamente mediante movimientos de ledger.
+Activo Descripción
+USDT-SBX Activo simulado utilizado como medio de pago
+XAUT-SBX Activo simulado representativo de oro
+El sufijo SBX identifica activos de prueba. La plataforma implementa un flujo de intercambio de USDT-SBX por XAUT-SBX, actuando como
+intermediaria frente a un proveedor de liquidez simulado. No existe cruce de órdenes entre usuarios ni order book. Antes de ejecutar
+cada operación, la plataforma debe consultar un servicio simulado de monitoreo transaccional.
+3. Alcance funcional
+3.1 Backend
+La entrega obligatoria es una API backend funcional. No se requiere frontend conectado a la API; el componente visual se evalúa
+mediante el mockup descrito en la sección 8.
+3.2 Roles y autenticación simplificada
+- Usuario: puede consultar sus wallets, saldos disponibles y retenidos, solicitar cotización, ejecutar un intercambio, consultar sus
+operaciones y movimientos.
+- Cumplimiento: puede consultar operaciones retenidas, aprobarlas, rechazarlas y consultar la trazabilidad de la decisión.
+No se requiere autenticación real (OIDC/OAuth2). Puede usarse un encabezado simplificado, por ejemplo X-User-Id: user-001, donde el
+usuario y su rol existen previamente en la base de datos. La API debe responder 401 Unauthorized cuando no identifique al usuario y 403
+Forbidden cuando el usuario no esté autorizado para la acción solicitada. El README debe explicar cómo se sustituiría este mecanismo
+en producción.
+3.3 Datos iniciales
+estos):
+La solución debe incluir un script de inicialización con, como mínimo, los siguientes registros (pueden agregarse otros, conservando
+Identificador Rol USDT-SBX disponible XAUT-SBX disponible
+user-001 Usuario 10.000 0
+compliance-001 Cumplimiento 0 0
+3.4 Wallets y ledger
+Cada usuario tiene una wallet independiente por activo. El sistema debe registrar saldo disponible, saldo retenido, saldo total y, por cada
+movimiento: tipo (débito/crédito), referencia de la operación, fecha y hora, estado, saldo anterior y saldo posterior.
+Reglas obligatorias:
+- Los saldos nunca pueden ser negativos y no pueden modificarse directamente: todo cambio se origina en un movimiento del ledger.
+- Los movimientos confirmados no se eliminan ni se sobrescriben.
+- Una misma operación no puede ejecutarse más de una vez.
+- Débito, crédito, movimientos del ledger y actualización de la operación se confirman o revierten dentro de una misma transacción
+de base de datos.
+- Los cálculos monetarios usan tipos decimales o representación entera de precisión definida; no se permite punto flotante binario.
+Se acepta un ledger simplificado por wallet: no se exige partida doble ni cuentas de tesorería o del proveedor de liquidez. El README
+debe explicar cómo evolucionaría el modelo hacia un ledger de partida doble.
+3.5 Proveedor de liquidez simulado
+Se asume inventario suficiente de XAUT-SBX. No se requiere modelar sus wallets, registrar su contabilidad, validar su inventario ni
+integrar un proveedor real. El objetivo es validar el flujo del usuario y la consistencia del ledger interno.
+3.6 Cotización
+El usuario solicita una cotización de USDT-SBX por XAUT-SBX. La cotización debe registrar: identificador único, activo de origen y destino,
+monto de origen, precio, comisión, monto estimado a recibir, fecha de creación, fecha de vencimiento y estado.
+- Precio: 1 XAUT-SBX = 2.500 USDT-SBX.
+- Comisión: 1% sobre el monto en USDT-SBX, descontada del activo de origen antes de calcular el activo de destino.
+- Vigencia: 30 segundos. Precisión máxima: 8 decimales. Redondeo hacia abajo en el monto de XAUT-SBX recibido.
+Ejemplo — 2.500 USDT-SBX: comisión 25 USDT-SBX; monto neto 2.475 USDT-SBX; XAUT-SBX estimado 0,99.
+Estados: ACTIVE, EXPIRED, USED. Reglas: una cotización vencida no puede ejecutarse; no puede usarse más de una vez; precio y
+comisión utilizados quedan registrados; la ejecución usa la información almacenada en la cotización, sin recalcular.
+3.7 Validación de cumplimiento simulada
+Antes de ejecutar el intercambio, el sistema consulta un servicio mock de monitoreo transaccional, desacoplado de la lógica principal.
+Puede implementarse como endpoint interno, servicio local, Mockoon, JSON Server o función simulada con contrato definido.
+Respuestas posibles: LOW, MEDIUM, HIGH, determinadas según el monto de origen:
+Monto en USDT-SBX Resultado Tratamiento
+Menor a 1.000 LOW Se ejecuta automáticamente
+1.000 a 5.000 (inclusive) MEDIUM Se ejecuta y queda marcada para seguimiento (requires_follow_up = true,
+estado final COMPLETED, sin aprobación previa)
+Mayor a 5.000 HIGH Queda retenida y requiere decisión de Cumplimiento
+No es obligatorio implementar reintentos, circuit breaker, colas, fallback. Si el servicio mock falla, la operación no debe afectar saldos y
+debe quedar en un estado controlado. La estrategia de producción debe explicarse en el README.
+3.8 Ejecución del intercambio
+Para cada operación: identificar al usuario, validar su rol, validar que la cotización exista y esté vigente y no utilizada, validar saldo
+suficiente, consultar el servicio de cumplimiento, aplicar el tratamiento correspondiente, registrar la operación y los movimientos del
+ledger, actualizar la cotización y conservar la trazabilidad completa.
+- LOW / MEDIUM: Debitar USDT-SBX, acreditar XAUT-SBX, registrar ambos movimientos, actualizar la operación a COMPLETED y la
+cotización a USED. Para MEDIUM, además, marcar la operación para seguimiento.
+- HIGH: Mover el monto requerido de saldo disponible a saldo retenido; dejar la operación en PENDING_REVIEW; conservar precio y
+comisión de la cotización original; marcar la cotización como utilizada o reservada. Cumplimiento aprueba o rechaza
+posteriormente: al aprobar, se debita el saldo retenido, se acredita XAUT-SBX y la operación pasa a COMPLETED; al rechazar, se
+libera el saldo retenido y la operación pasa a REJECTED sin acreditar XAUT-SBX. La operación conserva el precio original aunque la
+cotización haya vencido mientras estaba retenida.
+3.9 Idempotencia
+La creación del intercambio recibe una clave de idempotencia (encabezado Idempotency-Key). Misma clave y mismo contenido: se
+devuelve el resultado original sin duplicar movimientos. Misma clave y contenido diferente: 409 Conflict. La clave se conserva en base
+de datos. Es obligatoria únicamente en la creación del intercambio; no se exige expiración automática.
+3.10 Concurrencia
+La operación debe protegerse mediante transacciones y mecanismos adecuados de control de concurrencia. No se exige prueba
+automatizada de concurrencia, pero el candidato debe poder explicar en la sustentación cómo evita que dos solicitudes simultáneas
+consuman el mismo saldo.
+4. API mínima esperada
+El candidato puede ajustar la nomenclatura, conservando el alcance funcional:
+- GET /wallets
+- GET /wallets/:id/movements
+- POST /quotes
+- POST /exchanges
+- GET /exchanges/:id (detalle y trazabilidad de una operación)
+- GET /compliance/exchanges/pending
+- PATCH /compliance/exchanges/:id/approve
+- PATCH /compliance/exchanges/:id/reject
+5. Estados
+Cotización: ACTIVE, EXPIRED, USED. Intercambio: CREATED, PENDING_REVIEW, PROCESSING, COMPLETED, REJECTED, FAILED. El
+candidato puede proponer otros estados, documentando las transiciones y evitando ambigüedades.
+6. Tecnologías y herramientas
+- Backend: Node.js con TypeScript (Express, NestJS o Fastify), o Python (FastAPI o Django REST Framework).
+- Base de datos: PostgreSQL, MySQL o SQL Server.
+- Herramientas gratuitas: GitHub o GitLab; Jest, Vitest o Pytest; Swagger/OpenAPI; Postman, Bruno o Insomnia; Mermaid, Draw.io o
+Excalidraw; Figma Free, Penpot, Canva o PowerPoint para el mockup; Docker o Podman (opcional).
+7. Fuera de alcance
+Una arquitectura sencilla, modular y bien documentada será valorada.
+No se requiere: frontend funcional ni aplicación móvil; autenticación real (OIDC/OAuth2); emisión real de tokens; order book o matching
+entre usuarios; Travel Rule real; Kubernetes; despliegue público; observabilidad con Prometheus o Grafana; microservicios separados;
+contabilidad completa por partida doble.
+8. Mockup de frontend
+El candidato presenta un mockup de baja fidelidad con la experiencia mínima del Usuario y de Cumplimiento. No se requiere código
+frontend, conexión con la API, diseño gráfico definitivo, identidad visual, responsividad ni alta fidelidad. Se evalúa la coherencia entre el
+mockup, las reglas del caso y los estados del backend; no se evalúa la estética.
+1. Panel del usuario: wallets USDT-SBX y XAUT-SBX; saldo disponible, retenido y total; últimos movimientos; acceso a solicitar
+intercambio
+2. Solicitud de intercambio: monto en USDT-SBX, precio, comisión, monto estimado en XAUT-SBX, vigencia de la cotización, botón
+de confirmación, mensajes de validación
+3. Resultado de la operación: operación completada, pendiente de revisión, rechazada; cotización vencida; saldo insuficiente
+4. Bandeja de Cumplimiento: operaciones retenidas con usuario, monto, activo, nivel de riesgo y fecha; acciones de aprobar y
+rechazar
+9. Entregables
+1. Repositorio: código fuente; archivo de dependencias; migraciones o script de inicialización con datos semilla; pruebas
+automatizadas; instrucciones de ejecución; colección de API o documentación equivalente. Puede ser público o privado, otorgando
+acceso a los evaluadores en este último caso.
+2. README: breve, claro y suficiente para ejecutar la solución en un máximo de tres comandos principales. Debe incluir arquitectura,
+tecnologías seleccionadas, instalación y ejecución, inicialización de la base de datos, ejecución de pruebas, usuarios de prueba,
+ejemplos de consumo de la API, supuestos, limitaciones, tiempo aproximado empleado, decisiones técnicas, mejoras necesarias
+para producción, respuestas a las preguntas de diseño (sección 10) y herramientas de IA utilizadas, cuando aplique.
+3. Diagrama: diagrama sencillo (Mermaid o equivalente) con usuario, rol de Cumplimiento, API, servicio de cotización, servicio mock
+de cumplimiento, base de datos, wallets y ledger.
+4. Mockup: entregado mediante enlace, PDF, imagen, presentación o archivo exportado de la herramienta utilizada.
+5. Pruebas automatizadas — como mínimo, cubrir los siguientes escenarios (pueden combinarse cuando la estructura de pruebas
+lo permita):
+a. Intercambio exitoso con riesgo LOW
+b. Operación MEDIUM completada y marcada para seguimiento
+c. Saldo insuficiente
+d. Cotización vencida
+e. Repetición de la misma clave de idempotencia
+f. Reutilización de una clave de idempotencia con contenido diferente
+g. Operación HIGH retenida
+h. Aprobación de una operación retenida
+i. Rechazo de una operación retenida y liberación del saldo
+j. Intento de aprobación por un usuario sin rol de Cumplimiento
+10. Preguntas de diseño (responder brevemente en el README)
+a. b. c. d. e. f. Emisión y colocación: ¿Cómo ampliaría la solución para soportar emisión de activos por tramos y una colocación inicial,
+evitando que lo colocado supere el suministro autorizado?
+Transferencias: ¿Cómo implementaría transferencias internas entre usuarios preservando atomicidad, idempotencia y
+trazabilidad?
+Custodia: ¿Cómo conciliaría el total del ledger interno contra una wallet omnibus administrada mediante Fireblocks o una
+solución equivalente?
+Cumplimiento: ¿Cómo manejaría la indisponibilidad temporal de herramientas como Sumsub o Chainalysis sin permitir
+operaciones que requieran validación previa?
+Producción: ¿Qué controles técnicos, operativos y de seguridad implementaría antes de desplegar esta solución en una
+plataforma regulada?
+Emisión on-chain: ¿Qué componentes deberían mantenerse separados entre la lógica interna de la plataforma, el contrato
+inteligente, la custodia, la auditoría del contrato y la validación del activo de respaldo?
+11. Uso de inteligencia artificial
+Se permite el uso de herramientas de inteligencia artificial como apoyo. El candidato debe declarar qué herramientas utilizó y para qué,
+asumir responsabilidad sobre el código entregado y estar en capacidad de explicar y modificar cualquier parte de la solución.

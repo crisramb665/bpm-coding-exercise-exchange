@@ -246,10 +246,10 @@ Casos borde y extras:
 | B8 | Ver un exchange o una wallet ajena | e2e | 404. |
 | B9 | Aprobar algo que no está pendiente; rechazar sin motivo | e2e | 409; 400. |
 | B10 | Conciliación | e2e (helper que se ejecuta al final de a, g, h, i) | Para cada wallet, la suma de movimientos por `balance_type` es igual a `available` y `held`. |
-| B11 | Inmutabilidad | e2e (SQL directo) | UPDATE o DELETE sobre `ledger_entries` falla; un UPDATE del precio de la cotización falla. |
-| B12 *(opcional)* | Concurrencia: dos HIGH de 6.000 en paralelo | e2e | `Promise.all`: exactamente un 201 y un 422; held = 6.000; available = 4.000. |
-| B13 *(opcional)* | Concurrencia: misma clave en paralelo | e2e | Exactamente un exchange; la otra respuesta es 409 IN_PROGRESS o la reproducción. |
-| B14 *(opcional)* | Aprobar una HIGH con la cotización ya vencida | e2e | Cotización insertada con `expires_at = now() + 1 s`, ejecutar, esperar 1,5 s y aprobar → COMPLETED con el precio original. |
+| B11 | Inmutabilidad e integridad en la base | e2e (SQL directo) | `integrity.e2e-spec.ts`: las 4 tablas de solo inserción rechazan UPDATE/DELETE; wallets, cotizaciones y operaciones no se borran; el precio y los montos de la cotización son inmutables y solo pasa ACTIVE → USED/EXPIRED; la máquina de estados de la operación (8 transiciones inválidas, nacer solo en PROCESSING, identidad inmutable); saldos no negativos y wallets que nacen en cero; revisor con rol COMPLIANCE. Con controles positivos para que no sea vacía. |
+| B12 | Concurrencia: dos HIGH de 6.000 en paralelo | e2e | `Promise.all`: exactamente un 201 y un 422; held = 6.000; available = 4.000. |
+| B13 | Concurrencia: misma clave en paralelo | e2e | Exactamente un exchange; la otra respuesta es 409 IN_PROGRESS o la reproducción. |
+| B14 | Aprobar una HIGH con la cotización ya vencida | e2e | Cotización insertada con `expires_at = now() + 1 s`, ejecutar, esperar 1,5 s y aprobar → COMPLETED con el precio original. |
 
 Organización de los archivos:
 
