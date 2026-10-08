@@ -20,6 +20,9 @@ saldo cuadra y TRUNCATE funciona para limpiar en las pruebas.
 
 Se usa Node 22 (con `.nvmrc`) y pnpm.
 
+Versiones fijadas a propósito: **NestJS 11** (el 12 se publica solo como ESM y Jest 30 no puede cargarlo en Node 22) y
+**TypeScript 6** (el CLI de Nest aún no soporta TypeScript 7).
+
 Configuración por variables de entorno, con valores por defecto en `.env.example`:
 
 | Variable | Valor por defecto |

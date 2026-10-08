@@ -5,10 +5,11 @@
     "lib": ["ES2023"],
     "outDir": "./dist",
     // TypeScript 6 ya no incluye automáticamente los tipos de @types/*; hay que declararlos.
-    "types": ["node"],
+    "types": ["node", "jest"],
     "sourceMap": true,
     "declaration": false,
-    "incremental": true,
+    // Sin "incremental": el .tsbuildinfo queda fuera de dist/, y como Nest borra dist/ en cada build,
+    // TypeScript creía que ya estaba compilado y no emitía nada.
 
     // Necesarios para la inyección de dependencias de Nest: los decoradores leen los tipos en tiempo de ejecución.
     "experimentalDecorators": true,
