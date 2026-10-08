@@ -1,0 +1,4 @@
+# pnpm 11 bloquea los scripts de instalación de las dependencias hasta que se aprueban.
+# esbuild lo trae tsx (ejecuta scripts/migrate.ts); sin esta línea `pnpm install` falla en un clon limpio.
+allowBuilds:
+  esbuild: true
