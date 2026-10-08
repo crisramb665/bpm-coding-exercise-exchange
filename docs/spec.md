@@ -326,8 +326,13 @@ Cuerpo de la respuesta 201: el mismo que `GET /exchanges/:id`.
 
 Roles: USER (solo lo propio; D6 y D13) y COMPLIANCE (todo, con filtro opcional). Orden: lo más reciente primero.
 
-- 200 → `[{ id, user_id, status, risk_level, requires_follow_up, source_amount, target_amount, created_at }]`
-- 403 si un USER envía un `userId` ajeno.
+- 200 → `[{ id, user_id, status, risk_level, requires_follow_up, source_amount, target_amount, created_at }]`. Los montos
+  salen de la cotización, porque la operación no los copia (D10).
+- `?limit=` de 1 a 200 (50 por defecto), con las mismas reglas que los movimientos de wallets (S10).
+- 200 con `[]` si no hay operaciones (también para un `?userId` de COMPLIANCE sin operaciones o inexistente).
+- 400 si `?userId` está vacío, solo tiene espacios, supera 100 caracteres o se repite.
+- 403 `FORBIDDEN` si un USER envía un `userId` ajeno (D13): no se ignora en silencio ni se devuelve una lista vacía. Si
+  envía el suyo propio, se acepta.
 
 ### 5.6 `GET /exchanges/:id`
 
@@ -340,7 +345,9 @@ Roles: el dueño o COMPLIANCE. Devuelve el detalle completo y la trazabilidad de
   movements: [...], compliance_checks: [...], decision: {...} | null, events: [...] }
 ```
 
-- 404 `EXCHANGE_NOT_FOUND` si no existe o un USER pide una ajena.
+- 404 `EXCHANGE_NOT_FOUND` si no existe o un USER pide una ajena: el mismo código y mensaje en ambos casos, para no
+  revelar qué ids existen. COMPLIANCE puede ver la de cualquier usuario, incluidas las que están en curso.
+- Es exactamente el mismo cuerpo que devuelve el 201 de `POST /exchanges`.
 
 ### 5.7 `GET /compliance/exchanges/pending`
 
@@ -466,6 +473,9 @@ Otros casos borde:
 - **S8.** Cada movimiento se crea ya en `CONFIRMED`, dentro de la transacción de su operación; no hay movimientos
   pendientes. La corrección de un movimiento es otro movimiento, nunca una edición.
 - **S9.** La API no ofrece endpoints para crear usuarios, wallets ni depósitos; solo existe la semilla.
+- **S10.** `GET /exchanges` admite `?limit=` (1 a 200, 50 por defecto), igual que los movimientos de wallets. El enunciado no
+  habla de paginación; se añade solo un tope para que una lista no crezca sin límite. No hay paginación por páginas ni
+  filtros por estado: el orden es siempre del más reciente al más antiguo.
 
 ## 9. Preguntas abiertas
 

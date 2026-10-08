@@ -3,6 +3,7 @@ import { ComplianceServiceModule } from '../compliance-service/compliance-servic
 import { WalletsModule } from '../wallets/wallets.module';
 import { ExchangeDetailRepository } from './exchange-detail.repository';
 import { ExchangesController } from './exchanges.controller';
+import { ExchangesQueryService } from './exchanges-query.service';
 import { ExchangesRepository } from './exchanges.repository';
 import { ExchangesService } from './exchanges.service';
 import { IdempotencyRepository } from './idempotency.repository';
@@ -12,6 +13,6 @@ import { IdempotencyRepository } from './idempotency.repository';
 @Module({
   imports: [ComplianceServiceModule, WalletsModule],
   controllers: [ExchangesController],
-  providers: [ExchangesService, ExchangesRepository, IdempotencyRepository, ExchangeDetailRepository],
+  providers: [ExchangesService, ExchangesQueryService, ExchangesRepository, IdempotencyRepository, ExchangeDetailRepository],
 })
 export class ExchangesModule {}

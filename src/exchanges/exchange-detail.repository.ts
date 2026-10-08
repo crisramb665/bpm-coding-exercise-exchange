@@ -25,8 +25,35 @@ export interface ExchangeDetail {
   events: Record<string, unknown>[];
 }
 
+// Una fila del listado (docs/spec.md §5.5). Los montos salen de la cotización: la operación no los copia (D10).
+export interface ExchangeSummary {
+  id: string;
+  user_id: string;
+  status: string;
+  risk_level: string | null;
+  requires_follow_up: boolean;
+  source_amount: string;
+  target_amount: string;
+  created_at: Date;
+}
+
+// Lecturas de operaciones: el detalle con su trazabilidad y el listado.
 @Injectable()
 export class ExchangeDetailRepository {
+  // Las más recientes primero. `userId` null = de todos los usuarios (solo lo usa Cumplimiento). Usa el índice
+  // exchanges_user_idx (user_id, created_at DESC); el id desempata operaciones con la misma hora de creación.
+  async list(db: Queryable, userId: string | null, limit: number): Promise<ExchangeSummary[]> {
+    const { rows } = await db.query<ExchangeSummary>(
+      `SELECT e.id, e.user_id, e.status, e.risk_level, e.requires_follow_up, q.source_amount, q.target_amount, e.created_at
+         FROM exchanges e JOIN quotes q ON q.id = e.quote_id
+        WHERE ($1::text IS NULL OR e.user_id = $1)
+        ORDER BY e.created_at DESC, e.id DESC
+        LIMIT $2`,
+      [userId, limit],
+    );
+    return rows;
+  }
+
   async findById(db: Queryable, exchangeId: string): Promise<ExchangeDetail | undefined> {
     const exchange = await db.query<Omit<ExchangeDetail, 'quote' | 'movements' | 'compliance_checks' | 'decision' | 'events'> & { quote_id: string }>(
       `SELECT id, user_id, quote_id, status, risk_level, requires_follow_up, failure_reason, created_at, updated_at
