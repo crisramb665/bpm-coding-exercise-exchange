@@ -1,0 +1,50 @@
+%% Imagen exportada: docs/img/diagram-exchange-flow.png  (npx @mermaid-js/mermaid-cli -i docs/diagram-exchange-flow.mmd -o docs/img/diagram-exchange-flow.png -s 2). Si se edita este archivo, volver a exportarla.
+%% Flujo de POST /exchanges: las dos transacciones, la consulta a cumplimiento entre ambas, y la decisión humana para HIGH.
+sequenceDiagram
+  autonumber
+  actor U as Usuario (USER)
+  participant API as API
+  participant DB as PostgreSQL
+  participant CS as Servicio de cumplimiento (mock)
+  actor C as Oficial (COMPLIANCE)
+
+  U->>API: POST /exchanges {quote_id} + Idempotency-Key
+
+  rect rgb(232, 242, 255)
+    Note over API,DB: Tx1 - corta, sin llamadas externas
+    API->>DB: reservar la clave de idempotencia
+    API->>DB: bloquear la cotización (FOR UPDATE)
+    API->>DB: validar: ¿en uso? ¿usada? ¿vencida? ¿saldo preliminar?
+    API->>DB: crear la operación en PROCESSING + evento
+  end
+
+  Note over API,CS: Fuera de toda transacción: no hay filas bloqueadas ni conexiones abiertas
+  API->>CS: evaluar el riesgo del monto bruto (con timeout)
+  CS-->>API: LOW, MEDIUM o HIGH (o un error)
+
+  rect rgb(232, 255, 238)
+    Note over API,DB: Tx2 - atómica
+    API->>DB: bloquear operación, cotización y wallets (en ese orden, wallets por id)
+    API->>DB: releer el saldo bajo bloqueo y registrar la consulta
+    alt cumplimiento falló, o el saldo ya no alcanza
+      API->>DB: operación FAILED, sin movimientos, libera la clave
+      API-->>U: 503 o 422 (la cotización sigue disponible)
+    else LOW o MEDIUM
+      API->>DB: ledger: débito de USDT + crédito de XAUT, operación COMPLETED, cotización USED
+      API-->>U: 201 COMPLETED (MEDIUM: requires_follow_up = true)
+    else HIGH
+      API->>DB: ledger: débito del disponible + crédito del retenido, operación PENDING_REVIEW, cotización USED
+      API-->>U: 201 PENDING_REVIEW
+    end
+  end
+
+  opt Solo HIGH: decisión humana
+    C->>API: PATCH /compliance/exchanges/id/approve o reject
+    API->>DB: una transacción: bloquear, mover el saldo, registrar la decisión y el evento
+    alt aprobar
+      Note over API,DB: se debita lo retenido y se acredita el XAUT - COMPLETED
+    else rechazar
+      Note over API,DB: se libera lo retenido y no se acredita XAUT - REJECTED
+    end
+    API-->>C: 200 con el detalle de la operación
+  end

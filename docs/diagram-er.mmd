@@ -1,0 +1,90 @@
+%% Imagen exportada: docs/img/diagram-er.png  (npx @mermaid-js/mermaid-cli -i docs/diagram-er.mmd -o docs/img/diagram-er.png -s 2). Si se edita este archivo, volver a exportarla.
+%% Modelo de datos (migrations/001_schema.sql, fuente de verdad). Solo las columnas que explican las relaciones.
+erDiagram
+  users ||--o{ wallets : "una por activo"
+  assets ||--o{ wallets : "de"
+  users ||--o{ quotes : solicita
+  quotes ||--o{ exchanges : "una viva a la vez"
+  users ||--o{ exchanges : ejecuta
+  wallets ||--o{ ledger_entries : "solo cambia con"
+  exchanges |o--o{ ledger_entries : origina
+  exchanges ||--o{ compliance_checks : "consulta a cumplimiento"
+  exchanges ||--o| compliance_decisions : "decide Cumplimiento"
+  users ||--o{ compliance_decisions : "revisor COMPLIANCE"
+  exchanges ||--o{ exchange_events : historial
+  users ||--o{ idempotency_keys : "por usuario"
+  exchanges |o--o| idempotency_keys : enlaza
+
+  users {
+    text id PK
+    text role "USER o COMPLIANCE"
+    text name
+  }
+  assets {
+    text code PK "USDT-SBX, XAUT-SBX"
+  }
+  wallets {
+    uuid id PK
+    text user_id FK
+    text asset_code FK
+    numeric available "CHECK mayor o igual a 0"
+    numeric held "CHECK mayor o igual a 0"
+    numeric total "available + held"
+  }
+  quotes {
+    uuid id PK
+    text user_id FK
+    numeric source_amount
+    numeric price "inmutable"
+    numeric fee_amount "inmutable"
+    numeric target_amount "inmutable"
+    text status "ACTIVE, EXPIRED, USED"
+    timestamptz expires_at
+  }
+  exchanges {
+    uuid id PK
+    text user_id FK
+    uuid quote_id FK
+    text idempotency_key
+    text status "PROCESSING, PENDING_REVIEW, COMPLETED, REJECTED, FAILED"
+    text risk_level "LOW, MEDIUM, HIGH"
+    boolean requires_follow_up
+  }
+  ledger_entries {
+    bigint id PK
+    uuid wallet_id FK
+    uuid exchange_id FK "nulo en el depósito inicial"
+    text entry_type "DEBIT o CREDIT"
+    text balance_type "AVAILABLE o HELD"
+    numeric amount
+    numeric balance_before
+    numeric balance_after
+  }
+  idempotency_keys {
+    text user_id PK
+    text key PK
+    text request_hash
+    uuid exchange_id FK
+    int response_status "nulo mientras está en curso"
+  }
+  compliance_checks {
+    bigint id PK
+    uuid exchange_id FK
+    text provider
+    text outcome "OK o ERROR"
+    text risk_level
+  }
+  compliance_decisions {
+    bigint id PK
+    uuid exchange_id FK "única"
+    text reviewer_id FK
+    text decision "APPROVED o REJECTED"
+    text reason
+  }
+  exchange_events {
+    bigint id PK
+    uuid exchange_id FK
+    text from_status
+    text to_status
+    text actor_id "nulo = sistema"
+  }

@@ -1,0 +1,46 @@
+%% Imagen exportada: docs/img/diagram.png  (npx @mermaid-js/mermaid-cli -i docs/diagram.mmd -o docs/img/diagram.png -s 2). Si se edita este archivo, volver a exportarla.
+%% Arquitectura (enunciado 9.3): usuario, rol de Cumplimiento, API, servicio de cotización,
+%% servicio simulado de cumplimiento, base de datos, wallets y ledger.
+%% Flechas continuas: llamadas. Flecha punteada: la única llamada a un servicio externo (se hace FUERA de toda transacción).
+flowchart LR
+  U["Usuario<br/>(rol USER)"]
+  C["Oficial de Cumplimiento<br/>(rol COMPLIANCE)"]
+
+  subgraph API["API NestJS (autenticación simplificada: X-User-Id)"]
+    direction TB
+    AUTH["Guards globales<br/>401 sin usuario<br/>403 sin rol"]
+    QS["Servicio de cotización<br/>POST /quotes<br/>precio 2.500<br/>comisión 1 %<br/>vigencia 30 s"]
+    EX["Intercambios<br/>POST /exchanges<br/>(idempotente)<br/>GET /exchanges"]
+    WS["Wallets<br/>GET /wallets<br/>movimientos"]
+    REV["Revisión de Cumplimiento<br/>bandeja<br/>aprobar / rechazar"]
+    CC["Cliente de cumplimiento<br/>timeout, nunca lanza"]
+    LED["LedgerRepository<br/>único punto que<br/>mueve saldos"]
+  end
+
+  MOCK["Servicio MOCK<br/>de cumplimiento<br/>LOW / MEDIUM / HIGH<br/>según el monto"]
+
+  subgraph DB["Base de datos PostgreSQL"]
+    direction TB
+    W[("Wallets<br/>disponible, retenido<br/>y total")]
+    L[("Ledger<br/>movimientos inmutables<br/>con saldo anterior<br/>y posterior")]
+    O[("Cotizaciones y operaciones<br/>claves de idempotencia<br/>eventos y decisiones<br/>consultas a cumplimiento")]
+  end
+
+  U --> AUTH
+  C --> AUTH
+  AUTH --> QS
+  AUTH --> EX
+  AUTH --> WS
+  AUTH --> REV
+
+  QS --> O
+  EX -->|"Tx1: reservar"| O
+  EX -.->|"consulta de riesgo"| CC
+  CC -.-> MOCK
+  EX -->|"Tx2: aplicar"| LED
+  REV -->|"una transacción"| LED
+  REV --> O
+  LED --> W
+  LED --> L
+  WS --> W
+  WS --> L
