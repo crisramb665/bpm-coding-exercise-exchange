@@ -120,10 +120,14 @@ obligatorio, de 1 a 255 caracteres (400). Se calcula `requestHash = sha256(JSON 
 | 1 | `INSERT INTO idempotency_keys (user_id, key, request_hash) … ON CONFLICT DO NOTHING RETURNING` | Entrada del índice PK. Una petición concurrente con la misma clave **espera** aquí hasta el commit o rollback de esta. | Si no inserta nada: `SELECT` de la fila → si el hash es distinto, 409 `IDEMPOTENCY_KEY_MISMATCH`; si `response_status` es NULL, 409 `IDEMPOTENCY_IN_PROGRESS`; si no, se reproduce la respuesta guardada (con `Idempotent-Replayed: true`). |
 | 2 | `SELECT … FROM quotes WHERE id = $1 AND user_id = $2 FOR UPDATE` | **Fila de la cotización**: serializa todas las Tx1 sobre la misma cotización. | Si no existe: 404 `QUOTE_NOT_FOUND` (se guarda y se hace COMMIT). |
 | 3 | ¿Existe un exchange vivo (`status <> 'FAILED'`) para la cotización? | — | Si su estado es PROCESSING: 409 `QUOTE_IN_USE` (ROLLBACK, la clave se libera). Si la cotización está en USED: 409 `QUOTE_ALREADY_USED` (se guarda). Este paso va **antes** de comprobar el vencimiento, para que una petición concurrente no marque EXPIRED una cotización que otra operación ya tomó. |
-| 4 | ¿`status = 'ACTIVE'` y `now() < expires_at`? | — | Si está vencida: `UPDATE status = 'EXPIRED'`, 422 `QUOTE_EXPIRED` (se guarda y se hace COMMIT). |
+| 4 | ¿`status = 'ACTIVE'` y no vencida? Se mide con `clock_timestamp()`, no con `now()` (hora de *inicio* de la transacción, desfasada si esperó el bloqueo del paso 2), y **en una sentencia aparte posterior al `FOR UPDATE`**: PostgreSQL calcula las columnas del SELECT antes de esperar el bloqueo, así que en la misma sentencia mediría el instante previo a la espera. | — | Si está vencida: `UPDATE status = 'EXPIRED'`, 422 `QUOTE_EXPIRED` (se guarda y se hace COMMIT). |
 | 5 | Saldo preliminar: `available >= source_amount` (lectura **sin** bloqueo) | — | 422 `INSUFFICIENT_FUNDS` (ROLLBACK, la clave se libera). Es solo para fallar rápido; la validación definitiva está en Tx2. |
 | 6 | `INSERT exchanges (status = 'PROCESSING', idempotency_key)` + evento `null → PROCESSING` + `UPDATE idempotency_keys SET exchange_id` | El índice parcial `exchanges_quote_live_uq` es el respaldo del paso 3. | La violación `23505` se traduce a 409 `QUOTE_IN_USE`. |
 | 7 | COMMIT | Libera la cotización. | |
+
+**Estado de implementación (T11):** esta transacción está completa y probada (`ExchangesService.begin()`), pero la ruta
+`POST /exchanges` responde `501 NOT_IMPLEMENTED` cuando la reserva sale bien, porque la ejecución (llamar a cumplimiento y
+mover saldos: Tx2) llega en la T12. Hasta entonces, cada reserva exitosa deja una operación en PROCESSING.
 
 Para "guardar" una respuesta se ejecuta `UPDATE idempotency_keys SET response_status, response_body` dentro de la
 misma transacción antes del COMMIT. Para "liberar" la clave en Tx1 basta con hacer ROLLBACK: la fila nunca llega a

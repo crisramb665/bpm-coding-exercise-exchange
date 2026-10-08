@@ -115,6 +115,8 @@ almacenada").
 
 La clave queda anotada en el intercambio (`exchanges.idempotency_key`) para auditoría, aunque la fila de
 `idempotency_keys` se borre. Una respuesta reproducida lleva el encabezado `Idempotent-Replayed: true`.
+La respuesta reproducida tiene el mismo status y el mismo contenido que la original; como se guarda en una columna `jsonb`, el
+*orden* de las claves del JSON puede diferir, lo cual no afecta a ningún cliente que lea el JSON por nombre.
 
 **D12. Monto mínimo implícito.** `POST /quotes` responde 422 `AMOUNT_TOO_SMALL` si el destino da 0 tras redondear. No
 hay un mínimo arbitrario: la regla sale del cálculo, y el CHECK `target_amount > 0` la respalda.

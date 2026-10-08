@@ -5,6 +5,7 @@ import { ComplianceServiceModule } from './compliance-service/compliance-service
 import { DbModule } from './common/db/db.module';
 import { BusinessErrorFilter } from './common/errors/business-error.filter';
 import { createValidationPipe } from './common/errors/validation-pipe';
+import { ExchangesModule } from './exchanges/exchanges.module';
 import { QuotesModule } from './quotes/quotes.module';
 import { WalletsModule } from './wallets/wallets.module';
 
@@ -13,7 +14,7 @@ import { WalletsModule } from './wallets/wallets.module';
 // El filtro y el pipe se registran aquí (y no en main.ts) para que también apliquen en las pruebas,
 // que crean la app a partir de este módulo sin pasar por main.ts.
 @Module({
-  imports: [DbModule, AuthModule, WalletsModule, QuotesModule, ComplianceServiceModule],
+  imports: [DbModule, AuthModule, WalletsModule, QuotesModule, ComplianceServiceModule, ExchangesModule],
   providers: [
     { provide: APP_FILTER, useClass: BusinessErrorFilter },
     { provide: APP_PIPE, useFactory: createValidationPipe },
