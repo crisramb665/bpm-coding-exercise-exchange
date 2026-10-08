@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Intercambio USDT-SBX → XAUT-SBX con wallets internas, ledger, cotizaciones y cumplimiento simulado",
+  "packageManager": "pnpm@11.3.0",
   "engines": {
     "node": ">=22"
   },
