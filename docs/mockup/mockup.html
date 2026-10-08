@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Mockup de baja fidelidad - Intercambio USDT-SBX / XAUT-SBX</title>
+<!--
+  Mockup de baja fidelidad (enunciado, sección 8). No es una aplicación: es un wireframe en escala de grises, sin identidad visual.
+  Cada pantalla indica, en gris, el endpoint que la alimenta (data-endpoint), el estado del backend que representa (data-status) y el
+  código de error de la API que muestra (data-error). Una prueba (test/unit/mockup.spec.ts) comprueba que todo eso existe de verdad
+  en la API y en la base de datos.
+  Exportado a PDF y PNG en esta misma carpeta (ver docs/mockup/LEEME.md para regenerarlo).
+-->
+<style>
+  @page { size: 1280px 1000px; margin: 0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #222; background: #fff; font-size: 14px; line-height: 1.35; }
+
+  .screen { width: 1280px; height: 1000px; padding: 22px 34px; position: relative; overflow: hidden; page-break-after: always; break-after: page; }
+  .screen:last-child { page-break-after: auto; break-after: auto; }
+
+  .label { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #777; margin-bottom: 4px; }
+  h1 { font-size: 22px; margin: 0 0 12px; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+
+  /* "Aplicación" simulada */
+  .app { border: 2px solid #444; border-radius: 8px; background: #fff; padding: 0; }
+  .app-bar { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 2px solid #444; background: #e9e9e9; border-radius: 6px 6px 0 0; }
+  .logo { width: 34px; height: 34px; border: 2px dashed #666; display: grid; place-items: center; font-size: 10px; color: #666; }
+  .app-title { font-weight: 700; font-size: 16px; flex: 1; }
+  .who { border: 1.5px solid #444; border-radius: 14px; padding: 3px 12px; background: #fff; font-size: 13px; }
+  .app-body { padding: 16px; }
+
+  .box { border: 2px solid #444; border-radius: 6px; background: #f6f6f6; padding: 12px 14px; }
+  .box.white { background: #fff; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+  .row b { font-variant-numeric: tabular-nums; }
+  .muted { color: #666; font-size: 12px; }
+  .big { font-size: 20px; font-weight: 700; }
+
+  .btn { display: inline-block; border: 2px solid #333; border-radius: 6px; padding: 7px 16px; background: #ddd; font-weight: 600; }
+  .btn.primary { background: #333; color: #fff; }
+  .btn.disabled { border-style: dashed; color: #888; background: #f0f0f0; }
+  .input { border: 2px solid #666; background: #fff; padding: 8px 10px; border-radius: 4px; min-height: 36px; }
+  .input.bad { border-color: #a00; }
+  .err { color: #a00; font-size: 13px; margin-top: 4px; }
+  .chip { display: inline-block; border: 1.5px solid #333; border-radius: 12px; padding: 1px 10px; font-size: 12px; background: #fff; font-weight: 600; }
+  .chip.dark { background: #333; color: #fff; }
+  .chip.dash { border-style: dashed; }
+
+  table { width: 100%; border-collapse: collapse; background: #fff; }
+  th, td { border: 1.5px solid #888; padding: 6px 9px; text-align: left; font-size: 13px; }
+  th { background: #e4e4e4; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Anotaciones de diseño: lo que conecta el dibujo con el backend */
+  .annot { font-size: 11.5px; color: #555; border-left: 3px solid #999; padding: 2px 0 2px 8px; margin-top: 8px; background: #fafafa; }
+  .annot code { background: #eee; padding: 0 4px; border-radius: 3px; }
+  .notes { margin-top: 12px; font-size: 12.5px; color: #333; }
+  .notes ul { margin: 4px 0 0 18px; padding: 0; }
+
+  .card { border: 2px solid #444; border-radius: 8px; background: #fff; padding: 0; overflow: hidden; }
+  .card-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #e4e4e4; border-bottom: 2px solid #444; font-size: 12px; }
+  .card-body { padding: 10px 14px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border: 2px solid #333; border-radius: 50%; font-weight: 700; font-size: 13px; margin-right: 6px; }
+  .modal { border: 3px solid #333; background: #fff; border-radius: 8px; padding: 14px; box-shadow: 8px 8px 0 #bbb; }
+  .toast { border: 2px dashed #333; background: #fff; padding: 8px 12px; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<!-- =====================================================================================================================
+     PANTALLA 1 - Panel del usuario
+     ===================================================================================================================== -->
+<section class="screen" id="s1">
+  <div class="label">Pantalla 1 de 4 · rol USER</div>
+  <h1>Panel del usuario</h1>
+
+  <div class="app">
+    <div class="app-bar">
+      <div class="logo">logo</div>
+      <div class="app-title">Intercambio USDT-SBX ⇄ XAUT-SBX</div>
+      <span class="who">user-001 · rol USER</span>
+    </div>
+    <div class="app-body">
+
+      <h2>Mis wallets</h2>
+      <div class="grid2" data-endpoint="GET /wallets">
+        <div class="box white">
+          <div class="row"><span class="big">USDT-SBX</span><span class="chip dash">medio de pago</span></div>
+          <div class="row"><span>Disponible</span><b>1.500,00000000</b></div>
+          <div class="row"><span>Retenido <span class="muted">(en revisión de Cumplimiento)</span></span><b>5.000,01000000</b></div>
+          <div class="row" style="border-top:1.5px solid #888"><span>Total</span><b>6.500,01000000</b></div>
+        </div>
+        <div class="box white">
+          <div class="row"><span class="big">XAUT-SBX</span><span class="chip dash">oro simulado</span></div>
+          <div class="row"><span>Disponible</span><b>1,38599604</b></div>
+          <div class="row"><span>Retenido</span><b>0,00000000</b></div>
+          <div class="row" style="border-top:1.5px solid #888"><span>Total</span><b>1,38599604</b></div>
+        </div>
+      </div>
+      <div class="annot">Alimentado por <code>GET /wallets</code>. Disponible + Retenido = Total (el saldo retenido es el de una operación HIGH en <code>PENDING_REVIEW</code>). Los montos llegan como texto con 8 decimales y se muestran sin redondear.</div>
+
+      <div style="margin: 14px 0"><span class="btn primary">Solicitar intercambio →</span> <span class="muted">&nbsp;lleva a la pantalla 2</span></div>
+
+      <div class="grid2" style="grid-template-columns: 1.55fr 1fr; align-items: start">
+        <div>
+          <h2>Últimos movimientos <span class="muted">· USDT-SBX (más reciente primero)</span></h2>
+          <table data-endpoint="GET /wallets/{id}/movements">
+            <tr><th>Fecha</th><th>Tipo</th><th>Saldo</th><th class="num">Monto</th><th class="num">Antes → Después</th><th>Operación</th></tr>
+            <tr><td>08/10 18:41</td><td>Crédito</td><td>Retenido</td><td class="num">5.000,01</td><td class="num">0,00 → 5.000,01</td><td><u>ver</u></td></tr>
+            <tr><td>08/10 18:41</td><td>Débito</td><td>Disponible</td><td class="num">5.000,01</td><td class="num">6.500,01 → 1.500,00</td><td><u>ver</u></td></tr>
+            <tr><td>08/10 18:40</td><td>Débito</td><td>Disponible</td><td class="num">2.500,00</td><td class="num">9.000,01 → 6.500,01</td><td><u>ver</u></td></tr>
+            <tr><td>08/10 18:39</td><td>Débito</td><td>Disponible</td><td class="num">999,99</td><td class="num">10.000,00 → 9.000,01</td><td><u>ver</u></td></tr>
+            <tr><td>08/10 18:00</td><td>Crédito</td><td>Disponible</td><td class="num">10.000,00</td><td class="num">0,00 → 10.000,00</td><td>Depósito inicial</td></tr>
+          </table>
+          <div class="annot"><code>GET /wallets/{id}/movements?limit=5</code>. Cada movimiento trae el saldo anterior y el posterior. «Retener» se ve como un débito del disponible más un crédito del retenido; «liberar», al revés.</div>
+        </div>
+
+        <div>
+          <h2>Mis operaciones</h2>
+          <div class="box white" data-endpoint="GET /exchanges">
+            <div class="row"><span>5.000,01 USDT</span><span class="chip dark" data-status="PENDING_REVIEW">PENDING_REVIEW</span></div>
+            <div class="row"><span>2.500,00 USDT</span><span class="chip" data-status="COMPLETED">COMPLETED</span></div>
+            <div class="row"><span>100,00 USDT</span><span class="chip dash" data-status="FAILED">FAILED</span></div>
+            <div class="row"><span>999,99 USDT</span><span class="chip" data-status="COMPLETED">COMPLETED</span></div>
+          </div>
+          <div class="annot"><code>GET /exchanges</code> (solo las propias, la más reciente primero). Al tocar una fila: detalle y trazabilidad (<code>GET /exchanges/{id}</code>).</div>
+        </div>
+      </div>
+
+      <div class="notes">
+        <b>Reglas que respeta esta pantalla</b>
+        <ul>
+          <li>Cada usuario ve solo sus wallets y operaciones. Cumplimiento no usa este panel: tiene su propia bandeja (pantalla 4).</li>
+          <li>No hay ningún botón para editar un saldo: los saldos solo cambian con movimientos del ledger.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================================================================================
+     PANTALLA 2 - Solicitud de intercambio
+     ===================================================================================================================== -->
+<section class="screen" id="s2">
+  <div class="label">Pantalla 2 de 4 · rol USER</div>
+  <h1>Solicitud de intercambio</h1>
+
+  <div class="grid2" style="align-items: start">
+
+    <!-- 2A: formulario con mensajes de validación -->
+    <div>
+      <div class="label">2A · antes de cotizar, con mensajes de validación</div>
+      <div class="app">
+        <div class="app-bar"><div class="logo">logo</div><div class="app-title">Solicitar intercambio</div><span class="who">user-001</span></div>
+        <div class="app-body">
+          <div class="muted">Disponible: <b>1.500,00 USDT-SBX</b></div>
+          <div style="margin: 10px 0 4px"><b>Monto a pagar</b> (USDT-SBX)</div>
+          <div class="input bad" data-endpoint="POST /quotes">1,123456789</div>
+          <div class="err" data-error="VALIDATION_ERROR">✕ El monto admite como máximo 8 decimales.</div>
+
+          <div class="annot" style="margin-top:14px">Mensajes según el backend (<code>VALIDATION_ERROR</code>, 400) que el formulario también puede anticipar:</div>
+          <ul class="muted" style="margin: 6px 0 0 18px; padding:0">
+            <li>«Ingresa un monto mayor que 0.» (vacío, 0 o negativo)</li>
+            <li>«Usa solo números y un punto decimal.» (texto, <code>1e3</code>, coma)</li>
+            <li>«El monto admite como máximo 8 decimales.»</li>
+          </ul>
+          <div class="err" style="margin-top:10px" data-error="AMOUNT_TOO_SMALL">✕ Monto demasiado pequeño: recibirías 0 XAUT-SBX. <span class="muted">(422 <code>AMOUNT_TOO_SMALL</code>; p. ej. 0,00002525)</span></div>
+
+          <div style="margin-top: 14px"><span class="btn disabled">Cotizar</span> <span class="muted">&nbsp;deshabilitado mientras el monto sea inválido</span></div>
+        </div>
+      </div>
+      <div class="annot">El precio, la comisión y la vigencia los fija el servidor: el formulario solo envía el monto. El campo es texto (no número) para no perder precisión.</div>
+    </div>
+
+    <!-- 2B: cotización lista para confirmar -->
+    <div>
+      <div class="label">2B · cotización lista para confirmar</div>
+      <div class="app">
+        <div class="app-bar"><div class="logo">logo</div><div class="app-title">Confirmar intercambio</div><span class="who">user-001</span></div>
+        <div class="app-body">
+          <div class="row"><span><b>Monto a pagar</b></span><span class="input" style="min-width:150px; text-align:right">1.000,00 USDT-SBX</span></div>
+
+          <div class="box white" style="margin-top:10px" data-endpoint="POST /quotes">
+            <div class="row"><span>Precio</span><b>1 XAUT-SBX = 2.500,00 USDT-SBX</b></div>
+            <div class="row"><span>Comisión (1 %)</span><b>10,00 USDT-SBX</b></div>
+            <div class="row"><span>Monto neto a convertir</span><b>990,00 USDT-SBX</b></div>
+            <div class="row" style="border-top:1.5px solid #888"><span><b>Recibirás (estimado)</b></span><span class="big">0,396 XAUT-SBX</span></div>
+          </div>
+
+          <div style="margin-top:12px">
+            <div class="row"><span><b>Vigencia de la cotización</b></span><b>00:24</b></div>
+            <div style="border:2px solid #444; height:14px; background:#fff"><div style="width:80%; height:100%; background:#888"></div></div>
+            <div class="muted" style="margin-top:3px">30 segundos desde que se cotizó. Al llegar a 00:00 el botón se deshabilita y se ofrece cotizar de nuevo.</div>
+          </div>
+
+          <div class="box white" style="margin-top:12px; border-style:dashed">
+            <span class="muted">Aviso informativo: según el monto, la operación puede quedar en revisión de Cumplimiento antes de acreditarse. El resultado se informa en la pantalla siguiente.</span>
+          </div>
+
+          <div style="margin-top:14px; display:flex; gap:10px; align-items:center">
+            <span class="btn primary" data-endpoint="POST /exchanges">Confirmar intercambio</span>
+            <span class="btn">Cancelar</span>
+          </div>
+        </div>
+      </div>
+      <div class="annot">«Confirmar» llama a <code>POST /exchanges</code> con el <code>quote_id</code> y un <code>Idempotency-Key</code> que el cliente genera <b>una vez por cotización</b> y reutiliza si reintenta (por ejemplo, tras un corte de red): así un doble clic o un reintento no duplica la operación.</div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <b>Reglas que respeta esta pantalla</b>
+    <ul>
+      <li>Comisión del 1 % sobre el monto en USDT-SBX, descontada antes de convertir; el XAUT-SBX estimado se redondea hacia abajo (8 decimales como máximo).</li>
+      <li>Vigencia de 30 segundos: el temporizador del cliente es solo una ayuda; la autoridad es el servidor (<code>QUOTE_EXPIRED</code>, pantalla 3).</li>
+      <li>Cotizar no exige saldo: la validación de saldo ocurre al confirmar (pantalla 3, «Saldo insuficiente»). Por eso se muestra el disponible como guía.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- =====================================================================================================================
+     PANTALLA 3 - Resultado de la operación
+     ===================================================================================================================== -->
+<section class="screen" id="s3">
+  <div class="label">Pantalla 3 de 4 · rol USER</div>
+  <h1>Resultado de la operación <span class="muted" style="font-weight:400">· todos los desenlaces posibles de «Confirmar»</span></h1>
+
+  <div class="grid2" style="gap: 12px 14px">
+
+    <div class="card">
+      <div class="card-head"><span>3.1 · LOW</span><span>HTTP 201 · <span class="chip" data-status="COMPLETED">COMPLETED</span></span></div>
+      <div class="card-body">
+        <h3><span class="icon">✓</span>Operación completada</h3>
+        <div class="row"><span>Pagaste</span><b>999,99 USDT-SBX</b></div>
+        <div class="row"><span>Recibiste</span><b>0,39599604 XAUT-SBX</b></div>
+        <div class="muted">Saldos actualizados · <u>Ver detalle</u> · <u>Volver al panel</u></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span>3.2 · MEDIUM</span><span>HTTP 201 · <span class="chip" data-status="COMPLETED">COMPLETED</span> · requires_follow_up</span></div>
+      <div class="card-body">
+        <h3><span class="icon">✓</span>Operación completada</h3>
+        <div class="row"><span>Pagaste</span><b>2.500,00 USDT-SBX</b></div>
+        <div class="row"><span>Recibiste</span><b>0,99000000 XAUT-SBX</b></div>
+        <div class="muted"><span class="chip dash">Marcada para seguimiento</span> Se acreditó de inmediato; Cumplimiento la revisará después.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span>3.3 · HIGH</span><span>HTTP 201 · <span class="chip dark" data-status="PENDING_REVIEW">PENDING_REVIEW</span></span></div>
+      <div class="card-body">
+        <h3><span class="icon">⏳</span>Operación pendiente de revisión</h3>
+        <div class="row"><span>Retenido</span><b>5.000,01 USDT-SBX</b></div>
+        <div class="row"><span>Recibirás si se aprueba</span><b>1,98000396 XAUT-SBX</b></div>
+        <div class="muted">Tu saldo está retenido hasta que Cumplimiento decida. Verás el resultado en «Mis operaciones».</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span>3.4 · decisión de Cumplimiento</span><span>GET /exchanges/{id} · <span class="chip dash" data-status="REJECTED">REJECTED</span></span></div>
+      <div class="card-body" data-endpoint="GET /exchanges/{id}">
+        <h3><span class="icon">✕</span>Operación rechazada</h3>
+        <div class="row"><span>Motivo</span><b>Origen de fondos no acreditado</b></div>
+        <div class="row"><span>Saldo liberado</span><b>5.000,01 USDT-SBX</b></div>
+        <div class="muted">No se acreditó XAUT-SBX. Si la apruebas se muestra «Operación completada». La cotización no se reutiliza: <u>Solicitar una nueva</u>.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span>3.5 · cotización vencida</span><span>HTTP 422 · <b data-error="QUOTE_EXPIRED">QUOTE_EXPIRED</b></span></div>
+      <div class="card-body">
+        <h3><span class="icon">!</span>La cotización venció</h3>
+        <div class="muted">Pasaron más de 30 segundos. No se movió ningún saldo. El precio puede haber cambiado.</div>
+        <div style="margin-top:8px"><span class="btn primary">Solicitar una nueva cotización</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span>3.6 · saldo insuficiente</span><span>HTTP 422 · <b data-error="INSUFFICIENT_FUNDS">INSUFFICIENT_FUNDS</b></span></div>
+      <div class="card-body">
+        <h3><span class="icon">!</span>Saldo insuficiente</h3>
+        <div class="row"><span>Disponible</span><b>1.500,00 USDT-SBX</b></div>
+        <div class="row"><span>Necesario</span><b>2.000,00 USDT-SBX</b></div>
+        <div style="margin-top:6px"><span class="btn">Ajustar el monto</span> <span class="muted">la cotización sigue vigente mientras no venza</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span>3.7 · falla del servicio de cumplimiento</span><span>HTTP 503 · <b data-error="COMPLIANCE_UNAVAILABLE">COMPLIANCE_UNAVAILABLE</b></span></div>
+      <div class="card-body">
+        <h3><span class="icon">!</span>No pudimos validar la operación</h3>
+        <div class="muted">El servicio de cumplimiento no respondió. <b>Tu saldo no cambió</b> y la operación quedó registrada como fallida.</div>
+        <div style="margin-top:8px"><span class="btn primary">Reintentar</span> <span class="muted">misma clave: no se duplica nada</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span>3.8 · reintento de una operación ya enviada</span><span>HTTP 201 · Idempotent-Replayed</span></div>
+      <div class="card-body">
+        <h3><span class="icon">i</span>Esta operación ya se había procesado</h3>
+        <div class="muted">Mostramos su resultado original (el mismo de 3.1, 3.2 o 3.3). No se volvió a cobrar. Si todavía está en curso: «Estamos procesando tu operación» (<b data-error="IDEMPOTENCY_IN_PROGRESS">IDEMPOTENCY_IN_PROGRESS</b>, 409).</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="annot" style="margin-top:10px">Todas salen de <code data-endpoint="POST /exchanges">POST /exchanges</code>. El tipo de pantalla lo decide el estado y el código que devuelve el backend, nunca un cálculo del cliente. Otros errores del mismo endpoint se muestran con un mensaje genérico: <b data-error="QUOTE_ALREADY_USED">QUOTE_ALREADY_USED</b> («Esta cotización ya se usó, solicita una nueva») y <b data-error="QUOTE_IN_USE">QUOTE_IN_USE</b> («Hay otra operación en curso con esta cotización»).</div>
+</section>
+
+<!-- =====================================================================================================================
+     PANTALLA 4 - Bandeja de Cumplimiento
+     ===================================================================================================================== -->
+<section class="screen" id="s4">
+  <div class="label">Pantalla 4 de 4 · rol COMPLIANCE</div>
+  <h1>Bandeja de Cumplimiento</h1>
+
+  <div class="app">
+    <div class="app-bar">
+      <div class="logo">logo</div>
+      <div class="app-title">Operaciones retenidas</div>
+      <span class="who">compliance-001 · rol COMPLIANCE</span>
+    </div>
+    <div class="app-body">
+      <div class="row"><h2>Pendientes de decisión <span class="muted">· las más antiguas primero</span></h2><span class="muted">3 operaciones</span></div>
+      <table data-endpoint="GET /compliance/exchanges/pending">
+        <tr><th>Fecha</th><th>Usuario</th><th class="num">Monto (USDT-SBX)</th><th>Activo / a recibir</th><th class="num">Precio</th><th>Nivel de riesgo</th><th>Acciones</th></tr>
+        <tr><td>08/10 18:41</td><td>user-001<br><span class="muted">Usuario de prueba</span></td><td class="num">5.000,01</td><td>XAUT-SBX<br><span class="muted">1,98000396</span></td><td class="num">2.500,00</td><td><span class="chip dark">HIGH</span></td>
+            <td><span class="btn" data-endpoint="PATCH /compliance/exchanges/{id}/approve">Aprobar</span> <span class="btn" data-endpoint="PATCH /compliance/exchanges/{id}/reject">Rechazar</span></td></tr>
+        <tr><td>08/10 18:52</td><td>user-002<br><span class="muted">Otro usuario</span></td><td class="num">7.500,00</td><td>XAUT-SBX<br><span class="muted">2,97000000</span></td><td class="num">2.500,00</td><td><span class="chip dark">HIGH</span></td>
+            <td><span class="btn">Aprobar</span> <span class="btn">Rechazar</span></td></tr>
+        <tr><td>08/10 19:03</td><td>user-003<br><span class="muted">Tercer usuario</span></td><td class="num">6.000,00</td><td>XAUT-SBX<br><span class="muted">2,37600000</span></td><td class="num">2.500,00</td><td><span class="chip dark">HIGH</span></td>
+            <td><span class="btn">Aprobar</span> <span class="btn">Rechazar</span></td></tr>
+      </table>
+      <div class="annot">Alimentada por <code>GET /compliance/exchanges/pending</code>. El precio es el de la <b>cotización original</b>: se conserva aunque la cotización ya haya vencido mientras la operación esperaba. Un USER que intente abrir esta pantalla recibe 403.</div>
+
+      <div class="grid2" style="margin-top:14px; align-items:start">
+        <div>
+          <div class="label">4B · rechazar (el motivo es obligatorio)</div>
+          <div class="modal">
+            <h2>Rechazar la operación de user-001</h2>
+            <div class="muted" style="margin-bottom:6px">5.000,01 USDT-SBX · se liberará el saldo retenido y no se acreditará XAUT-SBX.</div>
+            <div><b>Motivo</b></div>
+            <div class="input bad" style="min-height:54px"></div>
+            <div class="err" data-error="VALIDATION_ERROR">✕ El motivo es obligatorio.</div>
+            <div style="margin-top:10px"><span class="btn primary" data-endpoint="PATCH /compliance/exchanges/{id}/reject">Confirmar rechazo</span> <span class="btn">Cancelar</span></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="label">4C · aprobar (el motivo es opcional)</div>
+          <div class="modal">
+            <h2>Aprobar la operación de user-001</h2>
+            <div class="muted" style="margin-bottom:6px">Se debitará lo retenido y se acreditarán 1,98000396 XAUT-SBX al precio original.</div>
+            <div><b>Motivo</b> <span class="muted">(opcional)</span></div>
+            <div class="input" style="min-height:54px">Origen de fondos verificado</div>
+            <div style="margin-top:10px"><span class="btn primary">Confirmar aprobación</span> <span class="btn">Cancelar</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:14px; align-items:start">
+        <div>
+          <div class="label">4D · otro revisor ya decidió</div>
+          <div class="toast" data-error="EXCHANGE_NOT_PENDING">✕ Esta operación ya fue decidida. La bandeja se actualizó. <span class="muted">(409 <code>EXCHANGE_NOT_PENDING</code>)</span></div>
+        </div>
+        <div>
+          <div class="label">4E · sin pendientes</div>
+          <div class="box white" style="text-align:center; border-style:dashed">No hay operaciones pendientes de revisión.</div>
+        </div>
+      </div>
+
+      <div class="notes">
+        <b>Reglas que respeta esta pantalla</b>
+        <ul>
+          <li>Solo aparecen operaciones en <b data-status="PENDING_REVIEW">PENDING_REVIEW</b>: las HIGH (monto de origen mayor que 5.000). Las MEDIUM se acreditan sin aprobación previa.</li>
+          <li>Tras aprobar queda <b data-status="COMPLETED">COMPLETED</b>; tras rechazar, <b data-status="REJECTED">REJECTED</b>. Ambas desaparecen de la bandeja y la decisión queda registrada con el revisor y el motivo.</li>
+          <li>Cumplimiento no cotiza ni intercambia (403) y sus wallets nunca se mueven al decidir.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

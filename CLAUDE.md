@@ -68,7 +68,8 @@ migrations/      # 001_schema.sql (fuente de verdad del esquema), 002_seed.sql, 
 scripts/         # migrate.ts
 test/            # pruebas e2e con supertest contra Postgres en Docker
 docs/            # prueba_tecnica.pdf, spec.md, plan.md, tasks.md, ia_y_tiempo.md, pruebas_manuales.md,
-                 # diagram*.mmd (Mermaid: arquitectura, flujo de las dos transacciones, modelo de datos) e img/ (sus imágenes)
+                 # diagram*.mmd (Mermaid: arquitectura, flujo de las dos transacciones, modelo de datos) e img/ (sus imágenes),
+                 # mockup/ (mockup de baja fidelidad: HTML, PDF y PNG)
 docker-compose.yml
 ```
 
