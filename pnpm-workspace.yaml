@@ -6,3 +6,5 @@ allowBuilds:
   # Estos dos traen su binario precompilado como paquete opcional; su postinstall solo sirve de respaldo.
   '@parcel/watcher': false
   unrs-resolver: false
+  # Lo trae swagger-ui-dist; su script solo envía telemetría de uso a un tercero. No se necesita, así que no se ejecuta.
+  '@scarf/scarf': false

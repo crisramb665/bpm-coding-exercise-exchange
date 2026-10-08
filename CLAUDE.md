@@ -57,6 +57,8 @@ src/
     auth/        # guard X-User-Id (401) y guard de rol (403)
     errors/      # BusinessError + filtro que lo traduce a HTTP
     money/       # cálculo de cotización con decimal.js (funciones puras)
+    http/        # utilidades de los endpoints (parseLimit)
+    swagger/     # Swagger UI en /docs: configuración, decorador de errores y ejemplos de respuesta
   wallets/       # GET /wallets, GET /wallets/:id/movements
   quotes/        # POST /quotes
   exchanges/     # POST /exchanges, GET /exchanges, GET /exchanges/:id, idempotencia, ledger

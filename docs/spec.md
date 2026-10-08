@@ -378,7 +378,11 @@ Rol: COMPLIANCE. Cuerpo `{ "reason": "…" }`, obligatorio y no vacío.
 - 404 si no existe.
 - 409 `EXCHANGE_NOT_PENDING`.
 
-Documentación navegable: Swagger UI en `/docs`.
+Documentación navegable: Swagger UI en `/docs` y el documento OpenAPI en `/docs-json`, ambos **sin** `X-User-Id`. Describe las 9 rutas
+agrupadas en cuatro grupos (Wallets, Cotizaciones, Intercambios, Cumplimiento), el esquema de seguridad `X-User-Id`, el encabezado
+obligatorio `Idempotency-Key`, los esquemas de los cuerpos (el monto como string con patrón) y todos los códigos de error posibles de cada
+ruta. Una prueba (`swagger.e2e-spec.ts`) verifica que el documento coincide con la API real y que sus ejemplos tienen la misma forma que
+las respuestas reales.
 
 ## 6. Estados y transiciones
 

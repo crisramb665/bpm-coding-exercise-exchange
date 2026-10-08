@@ -60,6 +60,20 @@ resumen() {
 Usuarios de la semilla: `user-001` (rol USER, 10.000 USDT-SBX) y `compliance-001` (rol COMPLIANCE, sin saldo). Se identifican con el
 encabezado `X-User-Id`.
 
+## Alternativa visual: Swagger UI
+
+Con el servidor corriendo, la API se puede probar sin `curl` desde el navegador, en **http://localhost:3000/docs**. Muestra las 9 rutas
+agrupadas (*Wallets*, *Cotizaciones*, *Intercambios*, *Cumplimiento*), con su descripción, los códigos de respuesta posibles y ejemplos.
+
+1. Pulsa **Authorize**, escribe `user-001` como valor de `X-User-Id` y cierra el diálogo. Desde ahí todas las peticiones salen como ese usuario
+   (para actuar como Cumplimiento, vuelve a *Authorize* y usa `compliance-001`).
+2. Abre `POST /quotes` → **Try it out**. Deja el cuerpo de ejemplo (`"source_amount": "2500"`) → **Execute**. Copia el `id` de la respuesta.
+3. Abre `POST /exchanges` → **Try it out**. En `Idempotency-Key` escribe `demo-1` y en el cuerpo pega `{"quote_id": "<el id copiado>"}` → **Execute**.
+   Responde `201` con `COMPLETED`. Pulsa **Execute** otra vez con la misma clave: devuelve lo mismo, y en los encabezados aparece `idempotent-replayed: true`.
+4. Abre `GET /wallets` → **Execute** para ver los saldos, y `GET /exchanges/{id}` con el id de la operación para ver toda la trazabilidad.
+
+El resto de esta guía usa `curl` porque permite recorrer los diez escenarios en orden y comprobar los resultados exactos.
+
 ## 1. Estado inicial y autenticación
 
 ```bash
