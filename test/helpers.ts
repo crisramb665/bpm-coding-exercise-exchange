@@ -4,6 +4,7 @@ import { INestApplication, Type } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { Pool } from 'pg';
 import { AppModule } from '../src/app.module';
+import { calculateQuote, FEE_RATE, formatAmount, PRICE } from '../src/common/money/money';
 import { TEST_DATABASE_URL } from './env';
 
 // Pool propio de las pruebas, para preparar y consultar datos directamente en SQL.
@@ -55,4 +56,58 @@ export function randomAmounts(count: number, seed = 12345n): string[] {
     amounts.push(`${units / 100000000n}.${(units % 100000000n).toString().padStart(8, '0')}`);
   }
   return amounts;
+}
+
+// Inserta una cotización calculada con el mismo código de producción. `ageSeconds` la "envejece": created_at queda
+// en el pasado y expires_at = created_at + 30 s, de modo que ageSeconds >= 30 da una cotización ya vencida.
+// (El trigger impide editar expires_at después, así que una cotización vencida hay que insertarla ya vencida.)
+export async function insertQuote(options: { amount: string; userId?: string; ageSeconds?: number }): Promise<string> {
+  const { amount, userId = 'user-001', ageSeconds = 0 } = options;
+  const q = calculateQuote(amount);
+  const { rows } = await testPool.query<{ id: string }>(
+    `INSERT INTO quotes (user_id, source_asset, target_asset, source_amount, price, fee_rate,
+                         fee_amount, net_amount, target_amount, created_at, expires_at)
+     VALUES ($1, 'USDT-SBX', 'XAUT-SBX', $2, $3, $4, $5, $6, $7,
+             now() - make_interval(secs => $8), now() - make_interval(secs => $8) + interval '30 seconds')
+     RETURNING id`,
+    [userId, amount, formatAmount(PRICE), FEE_RATE.toFixed(6), formatAmount(q.feeAmount), formatAmount(q.netAmount), formatAmount(q.targetAmount), ageSeconds],
+  );
+  return rows[0].id;
+}
+
+// Inserta un intercambio en PROCESSING (el único estado en que puede nacer) sobre una cotización.
+export async function insertExchange(quoteId: string, options: { userId?: string; key?: string } = {}): Promise<string> {
+  const { userId = 'user-001', key = `key-${quoteId}` } = options;
+  const { rows } = await testPool.query<{ id: string }>(
+    "INSERT INTO exchanges (user_id, quote_id, idempotency_key, status) VALUES ($1, $2, $3, 'PROCESSING') RETURNING id",
+    [userId, quoteId, key],
+  );
+  return rows[0].id;
+}
+
+// Aplica un movimiento de ledger a mano (saldo + movimiento en una sola sentencia), para preparar escenarios.
+// Las columnas se eligen de una lista fija, nunca desde entrada externa. La app lo hará con LedgerRepository (T10).
+export async function ledgerMove(m: {
+  userId: string;
+  asset: string;
+  exchangeId: string;
+  entryType: 'DEBIT' | 'CREDIT';
+  balanceType: 'AVAILABLE' | 'HELD';
+  amount: string;
+}): Promise<void> {
+  const column = m.balanceType === 'AVAILABLE' ? 'available' : 'held';
+  const sign = m.entryType === 'CREDIT' ? '+' : '-';
+  const after = column; // tras el UPDATE, RETURNING entrega el saldo nuevo
+  await testPool.query(
+    `WITH moved AS (
+       UPDATE wallets SET ${column} = ${column} ${sign} $3
+        WHERE user_id = $1 AND asset_code = $2
+       RETURNING id, ${after} AS balance_after
+     )
+     INSERT INTO ledger_entries (wallet_id, reference_type, exchange_id, entry_type, balance_type, amount, balance_before, balance_after)
+     SELECT id, 'EXCHANGE', $4, $5, $6, $3,
+            CASE WHEN $5 = 'CREDIT' THEN balance_after - $3 ELSE balance_after + $3 END, balance_after
+       FROM moved`,
+    [m.userId, m.asset, m.amount, m.exchangeId, m.entryType, m.balanceType],
+  );
 }

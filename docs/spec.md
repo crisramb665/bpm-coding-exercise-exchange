@@ -141,6 +141,43 @@ envía el suyo, se acepta.
 
 **D16. Esquema único.** `migrations/001_schema.sql` es la fuente de verdad; no hay copia en `docs/`.
 
+**D17. El rol COMPLIANCE también tiene wallets, siempre en cero.** `compliance-001` tiene sus dos wallets (USDT-SBX y
+XAUT-SBX) con saldo 0, igual que cualquier otro usuario. Se evaluó la alternativa de crear wallets solo para el rol
+USER y se descartó por las siguientes razones:
+
+1. **Lo exige el enunciado, no es una inferencia.** La tabla de 3.3 lista a `compliance-001` con columnas
+   "USDT-SBX disponible = 0" y "XAUT-SBX disponible = 0", y dice que la semilla debe contener "como mínimo" esos
+   registros "conservando estos". Sin wallets, esas dos celdas no tendrían dónde existir. Además, 2 y 3.4 establecen
+   que "cada usuario tiene una wallet independiente por activo", sin excluir a ningún rol.
+2. **El rol es un atributo del usuario, no un tipo de entidad distinto.** El enunciado (3.2) pide que "el usuario y su
+   rol existan previamente en la base de datos": hay una sola tabla `users` con una columna `role`. Mantener un único
+   invariante, *todo usuario tiene una wallet por activo*, evita una regla especial ("las wallets dependen del rol")
+   en la semilla, en la API y en las pruebas, y se verifica con una sola consulta.
+3. **La segregación de funciones no depende de la ausencia de wallets, sino de los permisos**, y esos están aplicados
+   en tres capas independientes:
+   - *API:* COMPLIANCE recibe 403 en `POST /quotes` y `POST /exchanges` (D14). No puede originar ninguna operación.
+   - *Ledger:* un saldo solo cambia con un movimiento (D1, R2), y los únicos movimientos que existen (depósito inicial
+     de la semilla y los de un intercambio) nunca apuntan a las wallets de quien decide: aprobar o rechazar mueve las
+     wallets **del dueño de la operación**, jamás las del revisor.
+   - *Base de datos:* el revisor de una decisión debe tener rol COMPLIANCE (FK compuesta), y la tabla de decisiones es
+     de solo inserción.
+4. **No hay riesgo que mitigar.** No existe ningún endpoint de depósito ni de transferencia (S9; las transferencias
+   son solo una pregunta de diseño). El saldo de esas wallets es 0 y no puede dejar de serlo. Que existan filas en
+   cero no da a Cumplimiento ninguna capacidad ni ningún incentivo: tampoco puede aprobar sus propias operaciones,
+   porque no puede crear ninguna.
+5. **Quitarlas costaría más de lo que aporta.** Habría que condicionar la semilla por rol, devolver `[]` en
+   `GET /wallets` para ese rol, reescribir pruebas ya hechas y separarse de la tabla de 3.3, que es lo primero que
+   un evaluador comprobaría. Y si un usuario cambiara de rol, haría falta una migración de datos para crearle o
+   quitarle wallets.
+6. **Es verificable.** Las pruebas de aprobación y rechazo (T14) comprueban que, después de decidir, las wallets de
+   `compliance-001` siguen en 0 y sin ningún movimiento de ledger. Si un cambio futuro hiciera que Cumplimiento
+   recibiera o perdiera saldo, esa prueba fallaría.
+
+*Límite que se declara en el README:* en una plataforma real, el personal de cumplimiento sería una identidad interna
+(del backoffice) sin wallets de cliente, y la separación entre clientes y operadores estaría en el proveedor de
+identidad. Aquí, con una autenticación simplificada y una sola tabla de usuarios, se conserva la uniformidad del
+modelo y se hace cumplir la segregación con permisos.
+
 ---
 
 ## 4. Modelo de cálculo de la cotización
@@ -175,7 +212,7 @@ Errores comunes a todos los endpoints:
 
 ### 5.1 `GET /wallets`
 
-Roles: USER y COMPLIANCE (S5). Devuelve las wallets propias.
+Roles: USER y COMPLIANCE (S5, D17). Devuelve las wallets propias; para COMPLIANCE son sus dos wallets en cero.
 
 - 200 → `[{ id, asset, available, held, total, updated_at }]`
 
@@ -185,7 +222,9 @@ Roles: USER y COMPLIANCE, sobre sus propias wallets. Devuelve los movimientos de
 `id`). `limit` va de 1 a 200; por defecto 50.
 
 - 200 → `[{ id, entry_type, balance_type, amount, balance_before, balance_after, status, reference_type, exchange_id, created_at }]`
-- 400 si el id no es un uuid o el limit es inválido.
+- Los montos viajan como string. `id` del movimiento es un bigint y también viaja como string ("1", "2"…): crece sin
+  parar y así no pierde precisión en JavaScript.
+- 400 si el id no es un uuid o `limit` no es un entero de 1 a 200 (se rechazan `0`, `201`, `1.5`, `1e2`, `abc` y vacío).
 - 404 `WALLET_NOT_FOUND` si la wallet no existe o es de otro usuario. Se usa 404 y no 403 para no revelar si existe.
 
 ### 5.3 `POST /quotes`
@@ -353,8 +392,10 @@ Otros casos borde:
 - **S3.** Los montos se reciben como **string JSON**; un número JSON da 400. Así `JSON.parse` nunca convierte un monto
   a `Number`, como exige R6.
 - **S4.** Los usuarios de la semilla se consideran aprobados; no se modela el estado de aprobación (KYC).
-- **S5.** `GET /wallets` y sus movimientos están abiertos a cualquier usuario autenticado sobre sus propias wallets
-  (compliance-001 tiene wallets en cero según 3.3). No es una acción de negocio, así que no afecta la segregación.
+- **S5.** `GET /wallets` y sus movimientos están abiertos a cualquier usuario autenticado sobre sus propias wallets.
+  Para COMPLIANCE devuelve sus dos wallets en cero (D17). Es una consulta propia, no una acción de negocio, así que
+  no afecta la segregación de funciones. Que el enunciado no mencione esta consulta para Cumplimiento (3.2) es una
+  omisión, no una prohibición: se permite porque devolver las wallets propias no expone datos de nadie más.
 - **S6.** La validez de la cotización usa la hora de PostgreSQL (`now()`), para evitar desfases entre el reloj de Node y
   el de la base.
 - **S7.** El servicio de cumplimiento tiene un timeout configurable (`COMPLIANCE_TIMEOUT_MS`, 2.000 ms por defecto). Un

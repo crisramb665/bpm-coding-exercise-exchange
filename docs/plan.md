@@ -237,7 +237,7 @@ Organización de los archivos:
 - `test/e2e/compliance.e2e-spec.ts`
 - `test/e2e/integrity.e2e-spec.ts`
 - Helpers en `test/helpers.ts`: `createApp({ overrides?, controllers? })`, `resetDb()`, `quote(amount)`, `exchange(quoteId, key)`,
-  `insertQuote({ amount, expiresAt })` y `assertReconciled()`.
+  `insertQuote({ amount, ageSeconds? })` (envejece la cotización: created_at en el pasado, vigencia de 30 s), `insertExchange(quoteId)`, `ledgerMove({...})` y `assertReconciled()`.
 
 ## 10. Esquema del README
 
@@ -250,7 +250,7 @@ Organización de los archivos:
 5.  Arquitectura: diagrama (docs/diagram.mmd), módulos y capas, flujo de POST /exchanges en dos transacciones
 6.  Tecnologías y por qué
 7.  Modelo de datos y reglas de integridad (enlace a migrations/001_schema.sql)
-8.  Decisiones técnicas (resumen de D1–D16 con enlace a docs/spec.md)
+8.  Decisiones técnicas (resumen de D1–D17 con enlace a docs/spec.md; incluir la justificación de D17: wallets del rol COMPLIANCE)
 9.  Concurrencia e idempotencia (resumen de la sección 7 del plan)
 10. Supuestos y limitaciones
 11. Mejoras para producción: autenticación real (OIDC + mTLS entre servicios, el rol sale del token), recuperación de
